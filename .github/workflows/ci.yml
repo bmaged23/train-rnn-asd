@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  lint-and-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Syntax-only check — deliberately doesn't install requirements.txt
+      # (torch's CUDA build alone is several GB) since neither this step nor
+      # the lint step below need the project's actual dependencies resolved.
+      - name: Compile check
+        run: python -m compileall -q config.py src scripts
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Lint
+        run: ruff check config.py src scripts

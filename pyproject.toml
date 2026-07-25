@@ -1,0 +1,13 @@
+[tool.ruff.lint]
+# CI only checks pyflakes rules (F) — real correctness issues (unused
+# imports/vars, undefined names) — not the full default style ruleset,
+# which flags pre-existing formatting choices (import sorting, quoted
+# forward-ref type hints, etc.) unrelated to actual bugs.
+select = ["F"]
+
+[tool.ruff.lint.per-file-ignores]
+# ava_source/split_csv_path/wasd_source are imported here purely to
+# re-export them — see this file's own module comment — so existing
+# `from windowed_dataset import ava_source` call sites keep working. Not
+# dead imports.
+"src/windowed_dataset.py" = ["F401"]

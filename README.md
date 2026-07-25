@@ -1,5 +1,7 @@
 # Train RNN ASD
 
+[![CI](https://github.com/bmaged23/train-rnn-asd/actions/workflows/ci.yml/badge.svg)](https://github.com/bmaged23/train-rnn-asd/actions/workflows/ci.yml)
+
 RNN-based Active Speaker Detection (ASD): given a face track, predict per-frame
 or per-window whether that person is speaking (`SPEAKING_AUDIBLE`) or not
 (`NOT_SPEAKING`), using only facial landmarks — no audio.
