@@ -1,26 +1,23 @@
-"""Evaluates a trained WindowedSpeakingDetectorRNN checkpoint on the held-out
-"test" split with the full binary-classification metric suite: accuracy,
-precision, recall, F1, confusion matrix, ROC-AUC, PR-AUC. Hardcoded to
-"test", same rationale as scripts/evaluate.py.
+"""Evaluates a scripts/modeling/train/windowed_all_combined.py checkpoint on the
+held-out "test" split — UniTalk-ASD + AVA-ActiveSpeaker + WASD combined (same
+extra_sources the training script used), so the reported metrics reflect the
+same combined distribution the model was trained and validated on. Otherwise
+identical to scripts/modeling/evaluate/windowed_combined.py (full binary-classification
+metric suite: accuracy, precision, recall, F1, confusion matrix, ROC-AUC,
+PR-AUC).
 
-Unlike scripts/evaluate.py, there's no frame-level masking here — each
-window is already exactly one sample with one label (src/windowed_dataset.py
-majority-votes the label at window-build time), so every window in the test
-split is scored, no filtering needed at eval time.
-
-This is a standalone, manually-run check — scripts/train_windowed.py does
-not call it. Writes to its own evaluation_windowed/ folder (not
-evaluation/, which holds the per-frame model's results — a "sample" means
-something different here, a window rather than a detected frame, so mixing
-the two folders would be confusing):
-    evaluation_windowed/eval_metrics.json     — the metrics dict (gitignored)
-    evaluation_windowed/confusion_matrix.png  — row-normalized confusion matrix (gitignored)
-    evaluation_windowed/roc_curve.png         — ROC curve (gitignored)
-    evaluation_windowed/pr_curve.png          — precision-recall curve (gitignored)
-    evaluation_windowed/eval.log              — human-readable run log (gitignored)
+Writes to its own evaluation_windowed_all_combined/ folder — kept separate
+from evaluation_windowed/ (UniTalk-only) and evaluation_windowed_combined/
+(UniTalk+AVA), since these are three different checkpoints/datasets being
+evaluated, not the same one:
+    evaluation_windowed_all_combined/eval_metrics.json     (gitignored)
+    evaluation_windowed_all_combined/confusion_matrix.png  (gitignored)
+    evaluation_windowed_all_combined/roc_curve.png         (gitignored)
+    evaluation_windowed_all_combined/pr_curve.png          (gitignored)
+    evaluation_windowed_all_combined/eval.log              (gitignored)
 
 Usage:
-    python scripts/evaluate_windowed.py [--checkpoint best|last]
+    python scripts/modeling/evaluate/windowed_all_combined.py [--checkpoint best|last]
 """
 from __future__ import annotations
 
@@ -31,11 +28,8 @@ import os
 import sys
 from pathlib import Path
 
-# Must be set before CUDA is initialized — see scripts/train_windowed.py's
-# matching comment. Not strictly required here (evaluation is a no-grad
-# forward pass on fixed weights, so it lacks the backward-pass atomicAdd
-# non-determinism that motivated this on the training side), but kept
-# consistent with train_windowed.py for full rigor.
+# Must be set before CUDA is initialized — see scripts/modeling/train/windowed.py's
+# matching comment.
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import numpy as np
@@ -45,8 +39,11 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 torch.use_deterministic_algorithms(True)
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 from config import (
+    ALL_WINDOWED_BEST_CHECKPOINT_FILENAME,
+    ALL_WINDOWED_EVALUATION_DIR,
+    ALL_WINDOWED_LAST_CHECKPOINT_FILENAME,
     CHECKPOINTS_DIR,
     EVAL_CONFUSION_MATRIX_FILENAME,
     EVAL_LOG_FILENAME,
@@ -57,14 +54,11 @@ from config import (
     USE_MAR,
     USE_MOUTH_LANDMARKS_ONLY,
     WINDOW_SIZE,
-    WINDOWED_BEST_CHECKPOINT_FILENAME,
-    WINDOWED_EVALUATION_DIR,
-    WINDOWED_LAST_CHECKPOINT_FILENAME,
 )
 
-sys.path.append(str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent / "src"))
 from dataset import NUM_INPUT_FEATURES
-from windowed_dataset import get_windowed_dataloader
+from windowed_dataset import ava_source, get_windowed_dataloader, wasd_source
 from windowed_model import WindowedSpeakingDetectorRNN
 from metrics import compute_metrics, format_report, plot_confusion_matrix, plot_pr_curve, plot_roc_curve
 from train_utils import reset_dir
@@ -72,10 +66,13 @@ from train_utils import reset_dir
 if not torch.cuda.is_available():
     torch.set_num_threads(TORCH_CPU_THREADS)  # see config.py — avoids CPU thread-contention on this 64-core box
 
-logger = logging.getLogger("evaluate_windowed")
+logger = logging.getLogger("evaluate_windowed_all_combined")
 
-SPLIT = "test"  # hardcoded — see module docstring
-_CHECKPOINT_CHOICES = {"best": WINDOWED_BEST_CHECKPOINT_FILENAME, "last": WINDOWED_LAST_CHECKPOINT_FILENAME}
+SPLIT = "test"  # hardcoded — same rationale as scripts/modeling/evaluate/frames.py
+_CHECKPOINT_CHOICES = {
+    "best": ALL_WINDOWED_BEST_CHECKPOINT_FILENAME,
+    "last": ALL_WINDOWED_LAST_CHECKPOINT_FILENAME,
+}
 
 
 def setup_logging(log_path: Path) -> None:
@@ -96,8 +93,7 @@ def collect_predictions(
     model: WindowedSpeakingDetectorRNN, loader, device: torch.device
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Runs `model` over every batch in `loader` and returns flat
-    (y_true, y_pred, y_prob) arrays — one entry per window, all windows
-    (no masking needed, unlike scripts/evaluate.py's per-frame version).
+    (y_true, y_pred, y_prob) arrays — one entry per window.
     """
     model.eval()
     all_labels, all_probs = [], []
@@ -119,11 +115,11 @@ def collect_predictions(
 
 
 def main(checkpoint: str = "best") -> dict:
-    """Runs the full test-split evaluation and returns the metrics dict."""
+    """Runs the full combined test-split evaluation and returns the metrics dict."""
     # Every run starts from a clean slate — deletes and recreates this
     # script's own evaluation folder (see src/train_utils.py).
-    reset_dir(WINDOWED_EVALUATION_DIR)
-    setup_logging(WINDOWED_EVALUATION_DIR / EVAL_LOG_FILENAME)
+    reset_dir(ALL_WINDOWED_EVALUATION_DIR)
+    setup_logging(ALL_WINDOWED_EVALUATION_DIR / EVAL_LOG_FILENAME)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"device: {device}")
@@ -132,32 +128,33 @@ def main(checkpoint: str = "best") -> dict:
         f"(NUM_INPUT_FEATURES={NUM_INPUT_FEATURES})  window_size={WINDOW_SIZE} — must match the "
         f"checkpoint's training config or model.load_state_dict below will raise a shape-mismatch error"
     )
+    logger.info("data sources: UniTalk-ASD + AVA-ActiveSpeaker + WASD (combined test split)")
 
     checkpoint_path = CHECKPOINTS_DIR / _CHECKPOINT_CHOICES[checkpoint]
     if not checkpoint_path.exists():
-        raise FileNotFoundError(f"{checkpoint_path} not found — run scripts/train_windowed.py first")
+        raise FileNotFoundError(f"{checkpoint_path} not found — run scripts/modeling/train/windowed_all_combined.py first")
     logger.info(f"checkpoint: {checkpoint_path} (split={SPLIT})")
 
     model = WindowedSpeakingDetectorRNN().to(device)
     model.load_state_dict(torch.load(checkpoint_path, map_location=device))
 
-    loader = get_windowed_dataloader(SPLIT, shuffle=False)
+    loader = get_windowed_dataloader(SPLIT, shuffle=False, extra_sources=[ava_source(SPLIT), wasd_source(SPLIT)])
     y_true, y_pred, y_prob = collect_predictions(model, loader, device)
 
     metrics = compute_metrics(y_true, y_pred, y_prob)
     logger.info("\n" + format_report(metrics))
 
-    metrics_path = WINDOWED_EVALUATION_DIR / EVAL_METRICS_FILENAME
+    metrics_path = ALL_WINDOWED_EVALUATION_DIR / EVAL_METRICS_FILENAME
     with open(metrics_path, "w") as f:
         json.dump({k: v for k, v in metrics.items() if not k.startswith("_")}, f, indent=2)
     logger.info(f"wrote {metrics_path}")
 
     plot_confusion_matrix(
-        metrics, split=SPLIT, save_path=WINDOWED_EVALUATION_DIR / EVAL_CONFUSION_MATRIX_FILENAME
+        metrics, split=SPLIT, save_path=ALL_WINDOWED_EVALUATION_DIR / EVAL_CONFUSION_MATRIX_FILENAME
     )
-    plot_roc_curve(metrics, split=SPLIT, save_path=WINDOWED_EVALUATION_DIR / EVAL_ROC_CURVE_FILENAME)
-    plot_pr_curve(metrics, split=SPLIT, save_path=WINDOWED_EVALUATION_DIR / EVAL_PR_CURVE_FILENAME)
-    logger.info(f"wrote plots to {WINDOWED_EVALUATION_DIR}")
+    plot_roc_curve(metrics, split=SPLIT, save_path=ALL_WINDOWED_EVALUATION_DIR / EVAL_ROC_CURVE_FILENAME)
+    plot_pr_curve(metrics, split=SPLIT, save_path=ALL_WINDOWED_EVALUATION_DIR / EVAL_PR_CURVE_FILENAME)
+    logger.info(f"wrote plots to {ALL_WINDOWED_EVALUATION_DIR}")
     return metrics
 
 
@@ -168,4 +165,4 @@ if __name__ == "__main__":
         help="which checkpoint to load (default: best, lowest val loss)",
     )
     args = parser.parse_args()
-    main(checkpoint=args.checkpoint)  # split is hardcoded to "test" — see module docstring
+    main(checkpoint=args.checkpoint)  # split is hardcoded to "test" — same rationale as scripts/modeling/evaluate/frames.py

@@ -21,7 +21,7 @@ this is a fast single streaming pass over the 8GB source file after a first
 lightweight metadata-only pass decides the per-track assignment.
 
 Usage:
-    python scripts/split_val_test.py
+    python scripts/splits/split_val_test.py
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from config import (
     COMBINED_LANDMARKS_FILENAME,
     DATA_PROCESSED_DIR,
@@ -42,7 +42,7 @@ from config import (
     VAL_TEST_SPLIT_SEED,
 )
 
-# Defaults are UniTalk-ASD's own paths; scripts/split_ava_val_test.py calls
+# Defaults are UniTalk-ASD's own paths; scripts/splits/split_ava_val_test.py calls
 # main() with AVA_PROCESSED_DATASET_DIR's equivalents instead, reusing every
 # function below unmodified — see that script.
 SOURCE_CSV = DATA_PROCESSED_DIR / "val" / COMBINED_LANDMARKS_FILENAME

@@ -43,7 +43,7 @@ from config import (
 # per-frame pipeline — they're pure path resolution, nothing
 # windowing-specific) and are re-exported here so existing
 # `from windowed_dataset import ava_source` call sites
-# (scripts/train_windowed_combined.py, scripts/evaluate_windowed_combined.py)
+# (scripts/modeling/train/windowed_combined.py, scripts/modeling/evaluate/windowed_combined.py)
 # keep working unchanged.
 from dataset import LOGICAL_SPLITS, LandmarkSequenceDataset, ava_source, split_csv_path, wasd_source
 
@@ -80,7 +80,7 @@ class WindowedLandmarkSequenceDataset(Dataset):
         loaded as its own LandmarkSequenceDataset and windowed alongside the
         default UniTalk-ASD source, for training on multiple datasets
         combined (see ava_source() above). Empty by default — existing
-        callers (scripts/train_windowed.py, scripts/evaluate_windowed.py) are
+        callers (scripts/modeling/train/windowed.py, scripts/modeling/evaluate/windowed.py) are
         unaffected unless they opt in.
         """
         if split not in LOGICAL_SPLITS:

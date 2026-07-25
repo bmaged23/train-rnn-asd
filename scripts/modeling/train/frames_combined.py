@@ -1,7 +1,7 @@
 """Trains SpeakingDetectorRNN (src/model.py, the per-frame many-to-many
 model) from scratch on UniTalk-ASD + AVA-ActiveSpeaker combined
 (src/dataset.py's extra_sources=[ava_source(split)]) — a fresh run, NOT
-fine-tuning scripts/train.py's existing checkpoint. Otherwise structurally
+fine-tuning scripts/modeling/train/frames.py's existing checkpoint. Otherwise structurally
 identical to that script (same architecture, optimizer, masked loss, early
 stopping) so the two are directly comparable — this is meant to answer
 "does adding the AVA subset help the per-frame model the way it helped the
@@ -9,13 +9,13 @@ windowed one?" (see [[ava-dataset-integration]] in project memory for that
 story — F1 0.6735->0.7151 combined with a capacity increase), not to
 introduce confounding changes alongside the new data.
 
-Unlike scripts/train.py, this uses a fixed seed (config.WINDOWED_SEED,
+Unlike scripts/modeling/train/frames.py, this uses a fixed seed (config.WINDOWED_SEED,
 reused rather than adding a near-duplicate constant — the per-frame
 pipeline never had its own seed before this) plus full determinism
 (cudnn.deterministic, use_deterministic_algorithms(True),
-CUBLAS_WORKSPACE_CONFIG — see scripts/train_windowed.py's matching comment
+CUBLAS_WORKSPACE_CONFIG — see scripts/modeling/train/windowed.py's matching comment
 for why a seed alone isn't sufficient on GPU), so this specific run is
-exactly reproducible, unlike every prior scripts/train.py run.
+exactly reproducible, unlike every prior scripts/modeling/train/frames.py run.
 
 pos_weight is computed from the combined train split's own masked-frame
 class distribution (not UniTalk's alone) — it naturally reflects whatever
@@ -23,11 +23,11 @@ the combined class balance actually is, no special-casing needed since
 compute_pos_weight just reads train_loader.dataset.labels/masks.
 
 Own checkpoint/log filenames (config.COMBINED_*), entirely separate from
-scripts/train.py's UniTalk-only files, so this run never overwrites that
+scripts/modeling/train/frames.py's UniTalk-only files, so this run never overwrites that
 one — the two are meant to sit side by side for comparison.
 
 This script deliberately does NOT touch the held-out "test" split — that's
-scripts/evaluate_frames_combined.py's job, writing to its own
+scripts/modeling/evaluate/frames_combined.py's job, writing to its own
 evaluation_combined/ folder.
 
 Checkpoints -> checkpoints/combined_{best,last}_model.pt (gitignored).
@@ -35,7 +35,7 @@ Per-epoch metrics -> logs/combined_train_metrics.csv (gitignored).
 Human-readable run log -> logs/combined_train.log (gitignored).
 
 Usage:
-    python scripts/train_frames_combined.py
+    python scripts/modeling/train/frames_combined.py
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ import time
 from pathlib import Path
 
 # Must be set before CUDA is initialized (first torch.cuda.* call below) —
-# see scripts/train_windowed.py's matching comment.
+# see scripts/modeling/train/windowed.py's matching comment.
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import numpy as np
@@ -56,7 +56,7 @@ import torch
 from torch import nn
 from tqdm import tqdm
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 from config import (
     BALANCED_BATCHES,
     CHECKPOINTS_DIR,
@@ -78,7 +78,7 @@ from config import (
     WINDOWED_SEED,
 )
 
-sys.path.append(str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent / "src"))
 from dataset import NUM_INPUT_FEATURES, ava_source, get_dataloader
 from model import SpeakingDetectorRNN
 from metrics import build_training_report, plot_accuracy_curve, plot_loss_curve
@@ -101,7 +101,7 @@ def masked_bce_loss(
 
 def compute_pos_weight(dataset) -> float:
     """num_negative / num_positive over the combined train split's masked
-    (real, detected) frames — same rationale as scripts/train.py's version,
+    (real, detected) frames — same rationale as scripts/modeling/train/frames.py's version,
     just over the concatenated UniTalk-ASD + AVA track pool.
     """
     labels = np.concatenate(dataset.labels)
@@ -177,7 +177,7 @@ def setup_logging(log_path: Path) -> None:
 
 def main() -> None:
     # Seed + full determinism — reused from the windowed pipeline (see
-    # scripts/train_windowed.py's matching comment for why a seed alone
+    # scripts/modeling/train/windowed.py's matching comment for why a seed alone
     # isn't sufficient on GPU). Per-frame's own train.py has never had this;
     # added here so this combined run is at least exactly reproducible,
     # even though train.py's own UniTalk-only results predate it.

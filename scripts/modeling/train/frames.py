@@ -11,7 +11,7 @@ split's actual class ratio (masked, real-detected frames only) and applied
 only to the training pass — NOT_SPEAKING outnumbers SPEAKING_AUDIBLE roughly
 3:1 in this dataset (see notebooks/03_explore_processed_dataset.ipynb), which
 otherwise biases the model toward under-predicting SPEAKING_AUDIBLE (see
-evaluation/ from a run of scripts/evaluate.py: recall 0.53 on
+evaluation/ from a run of scripts/modeling/evaluate/frames.py: recall 0.53 on
 SPEAKING_AUDIBLE vs. 0.94 on NOT_SPEAKING despite ROC-AUC 0.88 — the model
 ranks the classes well, the unweighted loss just doesn't push hard enough on
 the minority class). Val/test loss stay unweighted so they reflect the
@@ -25,7 +25,7 @@ short report, all to logs/ (gitignored) next to train_metrics.csv/train.log:
 
 This script deliberately does NOT touch the held-out "test" split — that
 classification-metrics check (accuracy/precision/recall/F1/confusion matrix/
-ROC-AUC/PR-AUC) is scripts/evaluate.py's job, run separately/manually,
+ROC-AUC/PR-AUC) is scripts/modeling/evaluate/frames.py's job, run separately/manually,
 writing to its own evaluation/ folder. Keeping the two apart means "test"
 stays untouched by anything that runs automatically during/after training.
 
@@ -35,7 +35,7 @@ Human-readable run log (same lines as printed to the console) -> logs/train.log
 (gitignored) — so progress/results survive a backgrounded/disconnected run.
 
 Usage:
-    python scripts/train.py
+    python scripts/modeling/train/frames.py
 """
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ import torch
 from torch import nn
 from tqdm import tqdm
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 from config import (
     ACCURACY_CURVE_FILENAME,
     BALANCED_BATCHES,
@@ -72,7 +72,7 @@ from config import (
     USE_MOUTH_LANDMARKS_ONLY,
 )
 
-sys.path.append(str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent / "src"))
 from dataset import NUM_INPUT_FEATURES, get_dataloader
 from model import SpeakingDetectorRNN
 from metrics import build_training_report, plot_accuracy_curve, plot_loss_curve
@@ -245,7 +245,7 @@ def main() -> None:
 
     # --- Combined train/val progress charts, across every epoch of this run ---
     # Deliberately no "test" split here — see module docstring. Run
-    # scripts/evaluate.py separately for the held-out classification-metrics check.
+    # scripts/modeling/evaluate/frames.py separately for the held-out classification-metrics check.
     metrics_df = pd.read_csv(metrics_path)
     plot_loss_curve(metrics_df, best_epoch=best_epoch, save_path=LOGS_DIR / LOSS_CURVE_FILENAME)
     plot_accuracy_curve(metrics_df, best_epoch=best_epoch, save_path=LOGS_DIR / ACCURACY_CURVE_FILENAME)

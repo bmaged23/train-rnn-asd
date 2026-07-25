@@ -43,7 +43,7 @@ CSV_COLUMNS = [
 # --- MediaPipe Face Landmarker (Tasks API) ---
 # Lives inside the project (models/face_landmarker.task) so the project is
 # self-contained — this used to be a symlink at /data/bola/models/ pointing
-# into another user's directory (/data/Mona/attention/); scripts/download_model.py
+# into another user's directory (/data/Mona/attention/); scripts/dataset/download_model.py
 # fetches this from the official MediaPipe model bucket if it's ever missing,
 # and PersonLandmarkExtractor (extract_landmarks.py) auto-downloads it on
 # first use rather than failing.
@@ -129,7 +129,7 @@ CSV_FLOAT_DECIMALS = 6
 # server) instead.
 NUM_EXTRACTION_WORKERS = 64
 
-# Optional: folder to run scripts/extract_landmarks.py against directly (train/val
+# Optional: folder to run scripts/features/extract_landmarks.py against directly (train/val
 # person folder or an arbitrary eval folder of images). Falls back to a sample
 # train folder if unset.
 EXTRACT_LANDMARKS_PERSON_DIR = os.getenv("EXTRACT_LANDMARKS_PERSON_DIR") or None
@@ -168,7 +168,7 @@ USE_MOUTH_LANDMARKS_ONLY = True
 # Whether to append the MAR (mouth aspect ratio) scalar feature.
 USE_MAR = True
 
-# --- scripts/split_val_test.py ---
+# --- scripts/splits/split_val_test.py ---
 # Splits data/processed/val/combined_landmarks.csv (by whole person_id track,
 # never splitting a track across files) into two physical CSVs: "val" (used
 # every epoch for early stopping / model selection — indirectly influences
@@ -201,7 +201,7 @@ DROPOUT = 0.3
 # CPU run (smoke tests, CPU-only training/eval) to avoid this trap.
 TORCH_CPU_THREADS = 4
 
-# --- scripts/train.py ---
+# --- scripts/modeling/train/frames.py ---
 CHECKPOINTS_DIR = PROJECT_ROOT / "checkpoints"
 LOGS_DIR = PROJECT_ROOT / "logs"
 TRAIN_METRICS_FILENAME = "train_metrics.csv"  # one row per epoch, gitignored (logs/*.csv)
@@ -228,16 +228,16 @@ GRADIENT_CLIP_NORM = 5.0  # nn.utils.clip_grad_norm_ max_norm — LSTMs are pron
 # changed which checkpoint got selected.
 EARLY_STOPPING_PATIENCE = 20
 
-# --- scripts/evaluate.py & src/metrics.py ---
+# --- scripts/modeling/evaluate/frames.py & src/metrics.py ---
 # target_index label convention, shared with src/dataset.py's collate_sequences
 # ("labels" comment) and used to order confusion-matrix axes / classification
 # report rows consistently everywhere.
 CLASS_NAMES = ["NOT_SPEAKING", "SPEAKING_AUDIBLE"]
 
-# scripts/evaluate.py is the dedicated classification-metrics check (accuracy/
+# scripts/modeling/evaluate/frames.py is the dedicated classification-metrics check (accuracy/
 # precision/recall/F1/confusion matrix/ROC-AUC/PR-AUC) — hardcoded to the
 # held-out "test" split (see its module docstring) and never run from
-# scripts/train.py. Its own output folder, separate from checkpoints/logs/.
+# scripts/modeling/train/frames.py. Its own output folder, separate from checkpoints/logs/.
 EVALUATION_DIR = PROJECT_ROOT / "evaluation"
 EVAL_METRICS_FILENAME = "eval_metrics.json"               # gitignored (evaluation/*.json)
 EVAL_LOG_FILENAME = "eval.log"                             # gitignored (evaluation/*.log)
@@ -245,18 +245,18 @@ EVAL_CONFUSION_MATRIX_FILENAME = "confusion_matrix.png"   # gitignored (evaluati
 EVAL_ROC_CURVE_FILENAME = "roc_curve.png"                  # gitignored (evaluation/*.png)
 EVAL_PR_CURVE_FILENAME = "pr_curve.png"                    # gitignored (evaluation/*.png)
 
-# --- scripts/train.py: post-training progress charts + report (added 2026-07-16) ---
+# --- scripts/modeling/train/frames.py: post-training progress charts + report (added 2026-07-16) ---
 # Training-progress check only — train vs val loss/accuracy across every
 # epoch of the run just finished, from logs/train_metrics.csv. Deliberately
-# does NOT touch the "test" split (that's scripts/evaluate.py's job, kept
+# does NOT touch the "test" split (that's scripts/modeling/evaluate/frames.py's job, kept
 # separate — see EVALUATION_DIR above). Lives in LOGS_DIR next to
 # train_metrics.csv/train.log.
 LOSS_CURVE_FILENAME = "loss_curve.png"          # gitignored (logs/*.png)
 ACCURACY_CURVE_FILENAME = "accuracy_curve.png"  # gitignored (logs/*.png)
 TRAINING_REPORT_FILENAME = "README.md"          # gitignored (logs/*.md)
 
-# --- src/windowed_dataset.py / src/windowed_model.py / scripts/train_windowed.py /
-#     scripts/evaluate_windowed.py (added 2026-07-16) ---
+# --- src/windowed_dataset.py / src/windowed_model.py / scripts/modeling/train/windowed.py /
+#     scripts/modeling/evaluate/windowed.py (added 2026-07-16) ---
 # Windowed many-to-one variant, alongside (not replacing) the per-frame
 # many-to-many pipeline above — see notebooks/… discussion and
 # [[training-runs-log]]-style memory for why: our per-frame model predicts
@@ -349,7 +349,7 @@ WINDOW_MIN_DETECTED_FRAMES_RATIO = MIN_DETECTED_FRAMES_RATIO
 # weight_decay was tried first (2026-07-16) and swept across 4 values
 # (0, 1e-3, 3e-3, 1e-2) with a fixed seed — none beat plain Adam with no
 # decay at all, so that approach was dropped entirely (removed from
-# scripts/train_windowed.py, back to plain torch.optim.Adam) — see
+# scripts/modeling/train/windowed.py, back to plain torch.optim.Adam) — see
 # [[windowed-approach]] for the sweep table. Reduced capacity (32/1) was
 # tried next — it genuinely fixed the overfitting *shape* (final gap
 # 16pp->7pp) but gave the *worst* F1 of everything tried (0.6241), since the
@@ -363,11 +363,11 @@ WINDOW_MIN_DETECTED_FRAMES_RATIO = MIN_DETECTED_FRAMES_RATIO
 WINDOWED_HIDDEN_SIZE = 256
 WINDOWED_NUM_RNN_LAYERS = 2
 
-# Fixed seed for reproducible train_windowed.py comparisons — added
+# Fixed seed for reproducible scripts/modeling/train/windowed.py comparisons — added
 # 2026-07-16 after noticing run-to-run F1 swings that couldn't be
 # distinguished from real config effects without one (no seed existed
 # before this). Deliberately scoped to the windowed pipeline only —
-# scripts/train.py (per-frame) is untouched, consistent with the
+# scripts/modeling/train/frames.py (per-frame) is untouched, consistent with the
 # "don't touch the per-frame pipeline" structural decision.
 WINDOWED_SEED = 42
 
@@ -390,7 +390,7 @@ WINDOWED_TRAINING_REPORT_FILENAME = "windowed_README.md"          # gitignored (
 # frames-vs-tracks "samples" terminology (see [[dataloader-design]]).
 WINDOWED_EVALUATION_DIR = PROJECT_ROOT / "evaluation_windowed"
 
-# --- scripts/download_ava_subset.py (added 2026-07-17) ---
+# --- scripts/dataset/download_ava_subset.py (added 2026-07-17) ---
 # AVA-ActiveSpeaker fine-tuning data: a second, independent ASD dataset (CC BY
 # 4.0, commercial-friendly) used to fine-tune the windowed pipeline and check
 # generalization beyond UniTalk-ASD. Same core annotation schema UniTalk-ASD
@@ -426,7 +426,7 @@ AVA_VIDEO_BASE_URL = "https://s3.amazonaws.com/ava-dataset/trainval"
 AVA_SUBSET_HOURS = None
 AVA_SUBSET_VAL_FRACTION = 0.2
 
-# Concurrent ffmpeg extractions in scripts/download_ava_subset.py — each is
+# Concurrent ffmpeg extractions in scripts/dataset/download_ava_subset.py — each is
 # an independent subprocess (CPU-bound video decode, no GPU decode used) so
 # this parallelizes well on this box's 64 cores, unlike NUM_EXTRACTION_WORKERS
 # above which is capped low because that step's bottleneck is a shared,
@@ -453,7 +453,7 @@ AVA_LABEL_ID_MAP = {
     "SPEAKING_BUT_NOT_AUDIBLE": 1,
 }
 
-# --- scripts/download_wasd_subset.py / scripts/process_wasd_dataset.py
+# --- scripts/dataset/download_wasd_subset.py / scripts/features/process_wasd_dataset.py
 #     (added 2026-07-22) ---
 # WASD (Wilder Active Speaker Detection, TBIOM 2025, CC-BY-SA-4.0) — a third
 # raw source alongside UniTalk-ASD and AVA, added to cover conditions neither
@@ -510,7 +510,7 @@ YOUTUBE_FORMAT = "bestvideo[vcodec^=avc1][height<=720]/bestvideo[vcodec^=avc1]/b
 # Padding added past each clip's annotated end second so the last labeled
 # frame_timestamp (subclip-relative, can land right at the nominal end) is
 # still inside the downloaded range — same rationale as AVA's extract_frames
-# "+1.0s pad" (scripts/download_ava_subset.py).
+# "+1.0s pad" (scripts/dataset/download_ava_subset.py).
 YOUTUBE_CLIP_END_PAD_SECONDS = 1
 # Per source-video yt-dlp invocation (all of that video's subclips are
 # requested in one call via repeated --download-sections, so this covers up
@@ -521,7 +521,7 @@ YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS = 3600
 # dataset — None means every source video referenced by the CSVs (164).
 WASD_SUBSET_VIDEOS = None
 
-# Concurrent source-video workers in scripts/download_wasd_subset.py — each
+# Concurrent source-video workers in scripts/dataset/download_wasd_subset.py — each
 # worker runs one yt-dlp process (fetching every subclip for that source
 # video in a single call) then crops every annotated frame from the results.
 # Kept lower than NUM_AVA_DOWNLOAD_WORKERS: this is bound by YouTube-side
@@ -529,7 +529,7 @@ WASD_SUBSET_VIDEOS = None
 # disk, so more workers doesn't reliably mean more throughput.
 NUM_WASD_DOWNLOAD_WORKERS = 8
 
-# --- scripts/train_windowed_combined.py / scripts/evaluate_windowed_combined.py
+# --- scripts/modeling/train/windowed_combined.py / scripts/modeling/evaluate/windowed_combined.py
 #     (added 2026-07-17) ---
 # Trains WindowedSpeakingDetectorRNN from scratch on UniTalk-ASD + AVA
 # combined (src/windowed_dataset.py's extra_sources=[ava_source(split)]) —
@@ -548,7 +548,7 @@ COMBINED_WINDOWED_ACCURACY_CURVE_FILENAME = "combined_windowed_accuracy_curve.pn
 COMBINED_WINDOWED_TRAINING_REPORT_FILENAME = "combined_windowed_README.md"          # gitignored (logs/*.md)
 COMBINED_WINDOWED_EVALUATION_DIR = PROJECT_ROOT / "evaluation_windowed_combined"
 
-# --- scripts/train_windowed_all_combined.py / scripts/evaluate_windowed_all_combined.py
+# --- scripts/modeling/train/windowed_all_combined.py / scripts/modeling/evaluate/windowed_all_combined.py
 #     (added 2026-07-25) ---
 # Trains WindowedSpeakingDetectorRNN from scratch on UniTalk-ASD + AVA + WASD
 # combined (src/windowed_dataset.py's extra_sources=[ava_source(split),
@@ -567,7 +567,7 @@ ALL_WINDOWED_ACCURACY_CURVE_FILENAME = "all_windowed_accuracy_curve.png"  # giti
 ALL_WINDOWED_TRAINING_REPORT_FILENAME = "all_windowed_README.md"          # gitignored (logs/*.md)
 ALL_WINDOWED_EVALUATION_DIR = PROJECT_ROOT / "evaluation_windowed_all_combined"
 
-# --- scripts/train_combined.py / scripts/evaluate_combined.py (added 2026-07-19) ---
+# --- scripts/modeling/train/frames_combined.py / scripts/modeling/evaluate/frames_combined.py (added 2026-07-19) ---
 # Per-frame counterpart to COMBINED_WINDOWED_* above — trains SpeakingDetectorRNN
 # (the per-frame many-to-many model, src/model.py) from scratch on
 # UniTalk-ASD + AVA combined (src/dataset.py's extra_sources=[ava_source(split)])

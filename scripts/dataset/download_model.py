@@ -9,8 +9,8 @@ PersonLandmarkExtractor needs the model, so this script is mainly for
 explicit/manual re-fetching.
 
 Usage:
-    python scripts/download_model.py
-    python scripts/download_model.py --force   # re-download even if already present
+    python scripts/dataset/download_model.py
+    python scripts/dataset/download_model.py --force   # re-download even if already present
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from config import FACE_LANDMARKER_MODEL_PATH, FACE_LANDMARKER_MODEL_URL
 
 

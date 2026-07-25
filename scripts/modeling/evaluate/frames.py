@@ -3,16 +3,16 @@ split (the 30% split_val_test.py carves out and training/early-stopping
 never touches) with the full binary-classification metric suite: accuracy,
 precision, recall, F1, confusion matrix, ROC-AUC, PR-AUC. Hardcoded to
 "test" — that's the one split this check is for; "train"/"val" progress is
-tracked separately by scripts/train.py's own loss/accuracy curves
+tracked separately by scripts/modeling/train/frames.py's own loss/accuracy curves
 (logs/loss_curve.png, logs/accuracy_curve.png), not by this script.
 
 Only real, detected frames count (batch["mask"] == 1) — the same masking
-convention scripts/train.py's masked_bce_loss/masked_accuracy use, so these
+convention scripts/modeling/train/frames.py's masked_bce_loss/masked_accuracy use, so these
 numbers are directly comparable to the train/val figures in
 logs/train_metrics.csv. Padding and undetected-within-track frames are
 excluded, not scored as either class.
 
-This is a standalone, manually-run check — scripts/train.py does not call
+This is a standalone, manually-run check — scripts/modeling/train/frames.py does not call
 it. Writes:
     evaluation/eval_metrics.json     — the metrics dict (gitignored)
     evaluation/confusion_matrix.png  — row-normalized confusion matrix (gitignored)
@@ -21,7 +21,7 @@ it. Writes:
     evaluation/eval.log              — human-readable run log (gitignored)
 
 Usage:
-    python scripts/evaluate.py [--checkpoint best|last]
+    python scripts/modeling/evaluate/frames.py [--checkpoint best|last]
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 from config import (
     BEST_CHECKPOINT_FILENAME,
     CHECKPOINTS_DIR,
@@ -50,7 +50,7 @@ from config import (
     USE_MOUTH_LANDMARKS_ONLY,
 )
 
-sys.path.append(str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent / "src"))
 from dataset import NUM_INPUT_FEATURES, get_dataloader
 from metrics import compute_metrics, format_report, plot_confusion_matrix, plot_pr_curve, plot_roc_curve
 from model import SpeakingDetectorRNN
@@ -122,7 +122,7 @@ def main(checkpoint: str = "best") -> dict:
 
     checkpoint_path = CHECKPOINTS_DIR / _CHECKPOINT_CHOICES[checkpoint]
     if not checkpoint_path.exists():
-        raise FileNotFoundError(f"{checkpoint_path} not found — run scripts/train.py first")
+        raise FileNotFoundError(f"{checkpoint_path} not found — run scripts/modeling/train/frames.py first")
     logger.info(f"checkpoint: {checkpoint_path} (split={SPLIT})")
 
     model = SpeakingDetectorRNN().to(device)

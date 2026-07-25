@@ -20,7 +20,7 @@ input folder itself:
     Mouth Aspect Ratio (MAR) for every image, null where no face was found
 
 Usage:
-    python scripts/extract_landmarks.py
+    python scripts/features/extract_landmarks.py
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ from mediapipe.tasks.python.core.base_options import BaseOptions
 from PIL import Image as PILImage
 from PIL import ImageDraw
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from config import (
     ANNOTATED_SUBDIR_NAME,
     ANNOTATION_MESH_COLOR,

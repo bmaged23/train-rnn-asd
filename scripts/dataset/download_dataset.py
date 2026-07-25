@@ -6,8 +6,8 @@ Video ids are discovered by listing the dataset repo itself (not a separate
 video_list file), so this stays in sync with whatever HuggingFace is serving.
 
 Usage:
-    python scripts/download_dataset.py
-    python scripts/download_dataset.py --splits train --limit 5   # smoke test
+    python scripts/dataset/download_dataset.py
+    python scripts/dataset/download_dataset.py --splits train --limit 5   # smoke test
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ import pandas as pd
 from huggingface_hub import HfApi, hf_hub_download
 from tqdm import tqdm
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from config import (
     CSV_COLUMNS,
     HF_DATASET_REPO_ID,

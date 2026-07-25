@@ -1,5 +1,5 @@
-"""Runs the same landmark extraction as scripts/process_dataset.py, but over
-the AVA-ActiveSpeaker subset (scripts/download_ava_subset.py's output) instead
+"""Runs the same landmark extraction as scripts/features/process_dataset.py, but over
+the AVA-ActiveSpeaker subset (scripts/dataset/download_ava_subset.py's output) instead
 of UniTalk-ASD's data/raw/.
 
 Reuses DatasetProcessor unmodified (see its clips_videos_dir/raw_csv_dir
@@ -13,14 +13,14 @@ Output layout (config.AVA_PROCESSED_DATASET_DIR — data/processed_ava/):
     data/processed_ava/<split>/completed_ids.txt
 
 Usage:
-    python scripts/process_ava_dataset.py
+    python scripts/features/process_ava_dataset.py
 """
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from config import AVA_PROCESSED_DATASET_DIR, AVA_RAW_CLIPS_VIDEOS_DIR, AVA_RAW_CSV_DIR, SPLITS
 from process_dataset import DatasetProcessor
 

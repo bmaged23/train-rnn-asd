@@ -6,15 +6,15 @@ Two independent families of helpers, kept deliberately separate — see
 with two different output folders:
   - `compute_metrics`/`format_report` + `plot_confusion_matrix`/`plot_roc_curve`/
     `plot_pr_curve`: consume flat (masked, per-frame) label/prediction/probability
-    arrays — see scripts/evaluate.py for how those are produced from a model's
+    arrays — see scripts/modeling/evaluate/frames.py for how those are produced from a model's
     per-frame logits — and turn them into the standard binary-classification
     report (accuracy, precision, recall, F1, confusion matrix, ROC-AUC, PR-AUC).
-    Used only by scripts/evaluate.py (hardcoded to the "test" split, writes to
+    Used only by scripts/modeling/evaluate/frames.py (hardcoded to the "test" split, writes to
     evaluation/) and notebooks/04_training_analysis.ipynb (renders inline).
   - `plot_loss_curve`/`plot_accuracy_curve`/`build_training_report`: consume
     the per-epoch train/val history in logs/train_metrics.csv and chart
     progress across the whole run — no test-split data involved. Used by
-    scripts/train.py right after training finishes, writing to logs/.
+    scripts/modeling/train/frames.py right after training finishes, writing to logs/.
 """
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_prob: np.ndarray) 
     """y_true/y_pred: 0/1 int arrays. y_prob: predicted probability of class 1
     (SPEAKING_AUDIBLE), i.e. sigmoid(logits). Returns a JSON-serializable dict
     (aside from the "_roc_curve"/"_pr_curve" plotting arrays — strip those
-    before json.dump, see scripts/evaluate.py).
+    before json.dump, see scripts/modeling/evaluate/frames.py).
     """
     precision, recall, f1, _support = precision_recall_fscore_support(
         y_true, y_pred, average="binary", zero_division=0
@@ -246,8 +246,8 @@ def build_training_report(
     accuracy_curve_filename: str,
 ) -> str:
     """Markdown write-up of train-vs-val progress across the run just
-    finished — written to logs/README.md by scripts/train.py. Training-
-    progress only: no test-split data touches this (see scripts/evaluate.py
+    finished — written to logs/README.md by scripts/modeling/train/frames.py. Training-
+    progress only: no test-split data touches this (see scripts/modeling/evaluate/frames.py
     for the separate, deliberately-standalone classification-metrics check
     against the held-out "test" split, written to evaluation/ instead).
     Image links are relative (same directory), so this reads correctly when
@@ -262,9 +262,9 @@ def build_training_report(
 
     return f"""# Training Progress Report — SpeakingDetectorRNN
 
-Generated automatically by `scripts/train.py` right after this run finished. Train-vs-val
+Generated automatically by `scripts/modeling/train/frames.py` right after this run finished. Train-vs-val
 progress only — for the held-out test-split classification metrics (accuracy/precision/recall/
-F1/confusion matrix/ROC-AUC/PR-AUC), run `scripts/evaluate.py` separately (writes to `evaluation/`).
+F1/confusion matrix/ROC-AUC/PR-AUC), run `scripts/modeling/evaluate/frames.py` separately (writes to `evaluation/`).
 
 ## Run summary
 

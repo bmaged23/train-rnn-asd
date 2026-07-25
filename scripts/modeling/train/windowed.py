@@ -1,6 +1,6 @@
 """Trains WindowedSpeakingDetectorRNN (src/windowed_model.py) — the windowed
-many-to-one counterpart to scripts/train.py's per-frame many-to-many model.
-Structurally mirrors scripts/train.py (device selection, pos_weight, early
+many-to-one counterpart to scripts/modeling/train/frames.py's per-frame many-to-many model.
+Structurally mirrors scripts/modeling/train/frames.py (device selection, pos_weight, early
 stopping, checkpointing, progress charts) but simpler: windows are fixed-length
 (config.WINDOW_SIZE) with a single label each, so there's no padding/masking
 to account for — plain BCEWithLogitsLoss over the whole batch.
@@ -8,15 +8,15 @@ to account for — plain BCEWithLogitsLoss over the whole batch.
 pos_weight is computed once at startup from the "train" split's window label
 distribution (config.WINDOW_SIZE-sized, majority-voted labels — see
 src/windowed_dataset.py) and applied only to the training pass, same
-rationale as scripts/train.py.
+rationale as scripts/modeling/train/frames.py.
 
 Right after training, src/metrics.py charts train-vs-val progress (reusing
 the exact same plot_loss_curve/plot_accuracy_curve/build_training_report
-functions scripts/train.py uses — the CSV schema is identical) to logs/,
+functions scripts/modeling/train/frames.py uses — the CSV schema is identical) to logs/,
 with a "windowed_" prefix so nothing collides with the per-frame run's files.
 
 This script deliberately does NOT touch the held-out "test" split — that's
-scripts/evaluate_windowed.py's job, run separately, writing to its own
+scripts/modeling/evaluate/windowed.py's job, run separately, writing to its own
 evaluation_windowed/ folder (kept apart from evaluate.py's evaluation/,
 since a windowed "sample" means a window, not a detected frame).
 
@@ -25,7 +25,7 @@ Per-epoch metrics -> logs/windowed_train_metrics.csv (gitignored).
 Human-readable run log -> logs/windowed_train.log (gitignored).
 
 Usage:
-    python scripts/train_windowed.py
+    python scripts/modeling/train/windowed.py
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ import torch
 from torch import nn
 from tqdm import tqdm
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 from config import (
     BALANCED_BATCHES,
     CHECKPOINTS_DIR,
@@ -71,7 +71,7 @@ from config import (
     WINDOWED_SEED,
 )
 
-sys.path.append(str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent / "src"))
 from dataset import NUM_INPUT_FEATURES
 from windowed_dataset import get_windowed_dataloader
 from windowed_model import WindowedSpeakingDetectorRNN
@@ -86,7 +86,7 @@ logger = logging.getLogger("train_windowed")
 
 def compute_pos_weight(labels: np.ndarray) -> float:
     """num_negative / num_positive over a flat array of window labels (0/1) —
-    same rationale as scripts/train.py's per-frame compute_pos_weight, just
+    same rationale as scripts/modeling/train/frames.py's per-frame compute_pos_weight, just
     computed over windows instead of frames.
     """
     num_pos = (labels == 1).sum()
@@ -259,7 +259,7 @@ def main() -> None:
 
     # --- Combined train/val progress charts, across every epoch of this run ---
     # Deliberately no "test" split here — see module docstring. Run
-    # scripts/evaluate_windowed.py separately for the held-out classification-metrics check.
+    # scripts/modeling/evaluate/windowed.py separately for the held-out classification-metrics check.
     metrics_df = pd.read_csv(metrics_path)
     plot_loss_curve(metrics_df, best_epoch=best_epoch, save_path=LOGS_DIR / WINDOWED_LOSS_CURVE_FILENAME)
     plot_accuracy_curve(metrics_df, best_epoch=best_epoch, save_path=LOGS_DIR / WINDOWED_ACCURACY_CURVE_FILENAME)

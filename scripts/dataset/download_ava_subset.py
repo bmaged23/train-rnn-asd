@@ -3,7 +3,7 @@ video, no cap) of AVA-ActiveSpeaker and reshapes it into the exact data/raw/
 layout UniTalk-ASD already uses:
     data/raw_ava/clips_videos/<split>/<video_id>/<entity_id>/<frame_timestamp:.2f>.jpg
     data/raw_ava/csv/<split>_orig.csv
-so scripts/process_dataset.py's DatasetProcessor can run over it unmodified,
+so scripts/features/process_dataset.py's DatasetProcessor can run over it unmodified,
 just pointed at config.AVA_RAW_CLIPS_VIDEOS_DIR / config.AVA_RAW_CSV_DIR.
 
 AVA ships only an annotation CSV (video_id, frame_timestamp, entity_box_x1/
@@ -39,8 +39,8 @@ pre-cropped face images like UniTalk-ASD provides. This script:
 No audio is downloaded — this project never trains on it.
 
 Usage:
-    python scripts/download_ava_subset.py
-    python scripts/download_ava_subset.py --splits train --limit 3   # smoke test
+    python scripts/dataset/download_ava_subset.py
+    python scripts/dataset/download_ava_subset.py --splits train --limit 3   # smoke test
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ import pandas as pd
 from PIL import Image
 from tqdm import tqdm
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from config import (
     AVA_ANNOTATIONS_URL_TRAIN,
     AVA_ANNOTATIONS_URL_VAL,

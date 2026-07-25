@@ -1,12 +1,14 @@
-"""Shared start-of-run cleanup for scripts/train_*.py and scripts/evaluate_*.py.
+"""Shared start-of-run cleanup for scripts/modeling/train/*.py and
+scripts/modeling/evaluate/*.py.
 
 Every run starts from a clean slate: reset_dir(dir_path) deletes `dir_path`
 (and everything in it) if present, then recreates it empty. Used at the start
-of both train_*.py (config.CHECKPOINTS_DIR, config.LOGS_DIR — shared across
-every training script, so this clears every prior run's checkpoints/logs, not
-just the current script's own) and evaluate_*.py (each script's own
-evaluation_*/ directory) runs, so a rerun never mixes with — or silently
-appends to, in the case of the log file — a previous run's output.
+of both train scripts (config.CHECKPOINTS_DIR, config.LOGS_DIR — shared
+across every training script, so this clears every prior run's
+checkpoints/logs, not just the current script's own) and evaluate scripts
+(each script's own evaluation_*/ directory) runs, so a rerun never mixes
+with — or silently appends to, in the case of the log file — a previous
+run's output.
 """
 from __future__ import annotations
 

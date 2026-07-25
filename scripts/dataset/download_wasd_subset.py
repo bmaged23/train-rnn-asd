@@ -2,9 +2,9 @@
 and reshapes it into the same layout convention data/raw_ava/ already uses:
     data/raw_wasd/clips_videos/<split>/<video_id>/<entity_id>/<frame_timestamp:.2f>.jpg
     data/raw_wasd/csv/<split>_orig.csv
-so scripts/process_dataset.py's DatasetProcessor can run over it unmodified,
+so scripts/features/process_dataset.py's DatasetProcessor can run over it unmodified,
 just pointed at config.WASD_RAW_CLIPS_VIDEOS_DIR / config.WASD_RAW_CSV_DIR
-(see scripts/process_wasd_dataset.py).
+(see scripts/features/process_wasd_dataset.py).
 
 Unlike AVA, WASD's own train_orig.csv/val_orig.csv already ship with a header
 and the exact CSV_COLUMNS column names/order, and a binary label_id (0/1, no
@@ -46,9 +46,9 @@ counted, never guessed at or substituted.
 No audio is downloaded/extracted — this project never trains on it.
 
 Usage:
-    python scripts/download_wasd_subset.py
-    python scripts/download_wasd_subset.py --limit 3   # smoke test: 3 source videos
-    python scripts/download_wasd_subset.py --keep-staging
+    python scripts/dataset/download_wasd_subset.py
+    python scripts/dataset/download_wasd_subset.py --limit 3   # smoke test: 3 source videos
+    python scripts/dataset/download_wasd_subset.py --keep-staging
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ import gdown
 import pandas as pd
 from tqdm import tqdm
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from config import (
     CSV_COLUMNS,
     NUM_WASD_DOWNLOAD_WORKERS,

@@ -1,7 +1,7 @@
 """Trains WindowedSpeakingDetectorRNN from scratch on UniTalk-ASD + AVA +
 WASD combined (src/windowed_dataset.py's extra_sources=[ava_source(split),
-wasd_source(split)]) — a fresh run, NOT fine-tuning scripts/train_windowed.py
-or scripts/train_windowed_combined.py's existing checkpoints. Otherwise
+wasd_source(split)]) — a fresh run, NOT fine-tuning scripts/modeling/train/windowed.py
+or scripts/modeling/train/windowed_combined.py's existing checkpoints. Otherwise
 structurally identical to those scripts (same architecture, seed, determinism
 settings, optimizer, early stopping) so all three are directly comparable —
 this is meant to answer "does adding WASD on top of AVA help?", not to
@@ -16,13 +16,13 @@ combined class balance actually is, no special-casing needed since
 compute_pos_weight just reads train_loader.dataset.labels.
 
 Own checkpoint/log filenames (config.ALL_WINDOWED_*), entirely separate from
-scripts/train_windowed.py's UniTalk-only WINDOWED_* files and
-scripts/train_windowed_combined.py's UniTalk+AVA COMBINED_WINDOWED_* files,
+scripts/modeling/train/windowed.py's UniTalk-only WINDOWED_* files and
+scripts/modeling/train/windowed_combined.py's UniTalk+AVA COMBINED_WINDOWED_* files,
 so this run never overwrites either — all three are meant to sit side by
 side for comparison, not replace each other.
 
 This script deliberately does NOT touch the held-out "test" split — that's
-scripts/evaluate_windowed_all_combined.py's job, writing to its own
+scripts/modeling/evaluate/windowed_all_combined.py's job, writing to its own
 evaluation_windowed_all_combined/ folder.
 
 Checkpoints -> checkpoints/all_windowed_{best,last}_model.pt (gitignored).
@@ -30,7 +30,7 @@ Per-epoch metrics -> logs/all_windowed_train_metrics.csv (gitignored).
 Human-readable run log -> logs/all_windowed_train.log (gitignored).
 
 Usage:
-    python scripts/train_windowed_all_combined.py
+    python scripts/modeling/train/windowed_all_combined.py
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ import time
 from pathlib import Path
 
 # Must be set before CUDA is initialized (first torch.cuda.* call below) —
-# see scripts/train_windowed.py's matching comment.
+# see scripts/modeling/train/windowed.py's matching comment.
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import numpy as np
@@ -51,7 +51,7 @@ import torch
 from torch import nn
 from tqdm import tqdm
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 from config import (
     ALL_WINDOWED_ACCURACY_CURVE_FILENAME,
     ALL_WINDOWED_BEST_CHECKPOINT_FILENAME,
@@ -74,7 +74,7 @@ from config import (
     WINDOWED_SEED,
 )
 
-sys.path.append(str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent / "src"))
 from dataset import NUM_INPUT_FEATURES
 from windowed_dataset import ava_source, get_windowed_dataloader, wasd_source
 from windowed_model import WindowedSpeakingDetectorRNN
@@ -89,7 +89,7 @@ logger = logging.getLogger("train_windowed_all_combined")
 
 def compute_pos_weight(labels: np.ndarray) -> float:
     """num_negative / num_positive over a flat array of window labels (0/1) —
-    same rationale as scripts/train_windowed.py's compute_pos_weight.
+    same rationale as scripts/modeling/train/windowed.py's compute_pos_weight.
     """
     num_pos = (labels == 1).sum()
     num_neg = (labels == 0).sum()
@@ -160,8 +160,8 @@ def setup_logging(log_path: Path) -> None:
 
 
 def main() -> None:
-    # Same seed + determinism setup as scripts/train_windowed.py /
-    # scripts/train_windowed_combined.py — keeping this identical (not a new
+    # Same seed + determinism setup as scripts/modeling/train/windowed.py /
+    # scripts/modeling/train/windowed_combined.py — keeping this identical (not a new
     # seed) is what makes the UniTalk-only vs. +AVA vs. +AVA+WASD comparison
     # meaningful; a different seed would confound "did the new data help"
     # with "did the random draw help".
@@ -248,7 +248,7 @@ def main() -> None:
 
     # --- Combined train/val progress charts, across every epoch of this run ---
     # Deliberately no "test" split here — see module docstring. Run
-    # scripts/evaluate_windowed_all_combined.py separately for the held-out check.
+    # scripts/modeling/evaluate/windowed_all_combined.py separately for the held-out check.
     metrics_df = pd.read_csv(metrics_path)
     plot_loss_curve(metrics_df, best_epoch=best_epoch, save_path=LOGS_DIR / ALL_WINDOWED_LOSS_CURVE_FILENAME)
     plot_accuracy_curve(metrics_df, best_epoch=best_epoch, save_path=LOGS_DIR / ALL_WINDOWED_ACCURACY_CURVE_FILENAME)

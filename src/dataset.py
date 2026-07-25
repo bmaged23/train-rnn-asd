@@ -1,7 +1,7 @@
 """PyTorch Dataset/DataLoader over process_dataset.py's combined_landmarks.csv.
 
 One sample = one person_id track (a single face/entity within one video, the
-same unit scripts/process_dataset.py extracts per-person). Each track is a
+same unit scripts/features/process_dataset.py extracts per-person). Each track is a
 variable-length sequence of per-frame feature vectors, a per-frame validity
 mask, and per-frame SPEAKING_AUDIBLE/NOT_SPEAKING labels. The feature vector
 is (landmarks, optionally + MAR) — which landmark set and whether MAR is
@@ -24,7 +24,7 @@ Two distinct masking decisions, both driven by MIN_DETECTED_FRAMES_RATIO
 There are three logical splits — "train", "val", "test". "train" reads
 data/processed/train/combined_landmarks.csv directly; "val" and "test" read
 data/processed/val/{val_split,test_split}.csv, the stratified split of the
-raw "val" folder produced by scripts/split_val_test.py (run that first — see
+raw "val" folder produced by scripts/splits/split_val_test.py (run that first — see
 its docstring for how the split is balanced).
 """
 from __future__ import annotations
@@ -72,7 +72,7 @@ LOGICAL_SPLITS = ("train", "val", "test")
 
 
 def split_csv_path(processed_dir: Path, split: str) -> Path:
-    """Same train/val/test -> filename convention scripts/split_val_test.py
+    """Same train/val/test -> filename convention scripts/splits/split_val_test.py
     and process_dataset.py already establish, generalized over the processed
     dir root so a second dataset sharing this exact schema (e.g. AVA-
     ActiveSpeaker, rooted at config.AVA_PROCESSED_DATASET_DIR — see
@@ -91,7 +91,7 @@ _SPLIT_CSV_PATH = {split: split_csv_path(DATA_PROCESSED_DIR, split) for split in
 def ava_source(split: str) -> tuple[Path, str]:
     """One `extra_sources` entry (see LandmarkSequenceDataset/get_dataloader
     and their windowed counterparts) that points at the AVA-ActiveSpeaker
-    subset (scripts/download_ava_subset.py + scripts/process_ava_dataset.py's
+    subset (scripts/dataset/download_ava_subset.py + scripts/features/process_ava_dataset.py's
     output) for the given logical split — same combined_landmarks.csv schema
     as UniTalk-ASD, just rooted at config.AVA_PROCESSED_DATASET_DIR. Shared by
     both the per-frame and windowed pipelines (src/windowed_dataset.py
@@ -104,8 +104,8 @@ def ava_source(split: str) -> tuple[Path, str]:
 def wasd_source(split: str) -> tuple[Path, str]:
     """One `extra_sources` entry (see LandmarkSequenceDataset/get_dataloader
     and their windowed counterparts) that points at the WASD (Wilder Active
-    Speaker Detection) subset (scripts/download_wasd_subset.py +
-    scripts/process_wasd_dataset.py's output) for the given logical split —
+    Speaker Detection) subset (scripts/dataset/download_wasd_subset.py +
+    scripts/features/process_wasd_dataset.py's output) for the given logical split —
     same combined_landmarks.csv schema as UniTalk-ASD/AVA, just rooted at
     config.WASD_PROCESSED_DATASET_DIR. Shared by both the per-frame and
     windowed pipelines the same way ava_source() is.
@@ -128,9 +128,9 @@ def _load_frame_table(split: str, csv_path: Path | None = None) -> pd.DataFrame:
         csv_path = _SPLIT_CSV_PATH[split]
     if not csv_path.exists():
         how = (
-            "run scripts/process_dataset.py first"
+            "run scripts/features/process_dataset.py first"
             if split == "train"
-            else "run scripts/split_val_test.py first"
+            else "run scripts/splits/split_val_test.py first"
         )
         raise FileNotFoundError(f"{csv_path} not found — {how}")
     df = pd.read_csv(csv_path, usecols=_METADATA_COLUMNS + FEATURE_COLUMNS, engine="pyarrow")
@@ -161,7 +161,7 @@ class LandmarkSequenceDataset(Dataset):
         loaded the same way as the primary source and appended into this same
         dataset's person_ids/features/masks/labels, for training on multiple
         datasets combined (see ava_source() above). Empty by default —
-        existing callers (scripts/train.py, scripts/evaluate.py) are
+        existing callers (scripts/modeling/train/frames.py, scripts/modeling/evaluate/frames.py) are
         unaffected unless they opt in.
         """
         if split not in LOGICAL_SPLITS:

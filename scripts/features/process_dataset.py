@@ -39,7 +39,7 @@ CSV_FLOAT_DECIMALS (config.py) rather than full float precision — landmark col
 are empty when detected=False.
 
 Usage:
-    python scripts/process_dataset.py
+    python scripts/features/process_dataset.py
 """
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from config import (
     COMBINED_LANDMARKS_FILENAME,
     COMPLETED_IDS_FILENAME,
@@ -109,7 +109,7 @@ class DatasetProcessor:
         self.landmarks_dir = Path(landmarks_dir)
         # Overridable so the same class can process a different raw/ layout
         # (e.g. data/raw_ava/) without any other logic changes — see
-        # scripts/process_ava_dataset.py.
+        # scripts/features/process_ava_dataset.py.
         self.clips_videos_dir = Path(clips_videos_dir)
         self.raw_csv_dir = Path(raw_csv_dir)
 

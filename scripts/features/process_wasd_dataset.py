@@ -1,5 +1,5 @@
-"""Runs the same landmark extraction as scripts/process_dataset.py, but over
-the WASD subset (scripts/download_wasd_subset.py's output) instead of
+"""Runs the same landmark extraction as scripts/features/process_dataset.py, but over
+the WASD subset (scripts/dataset/download_wasd_subset.py's output) instead of
 UniTalk-ASD's data/raw/.
 
 Reuses DatasetProcessor unmodified (see its clips_videos_dir/raw_csv_dir
@@ -13,14 +13,14 @@ Output layout (config.WASD_PROCESSED_DATASET_DIR — data/processed_wasd/):
     data/processed_wasd/<split>/completed_ids.txt
 
 Usage:
-    python scripts/process_wasd_dataset.py
+    python scripts/features/process_wasd_dataset.py
 """
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from config import SPLITS, WASD_PROCESSED_DATASET_DIR, WASD_RAW_CLIPS_VIDEOS_DIR, WASD_RAW_CSV_DIR
 from process_dataset import DatasetProcessor
 
