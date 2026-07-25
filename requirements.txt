@@ -1,0 +1,18 @@
+huggingface_hub>=0.24
+pandas
+pyarrow
+tqdm
+matplotlib
+seaborn
+scikit-learn
+Pillow
+mediapipe
+python-dotenv
+gdown  # scripts/download_wasd_subset.py — WASD's CSV annotations are only hosted on Google Drive
+yt-dlp  # scripts/download_wasd_subset.py — WASD's source video pulled from YouTube (Drive zip hits a download quota)
+# Default PyPI `torch` pulls the full GPU/CUDA build (several GB of bundled
+# nvidia-* packages) — that's what's installed here. On a slow/constrained
+# link, `pip install --index-url https://download.pytorch.org/whl/cpu torch`
+# gets a much smaller CPU-only build instead (fine for dev/smoke-testing,
+# not for real training runs).
+torch
