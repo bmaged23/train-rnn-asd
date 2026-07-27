@@ -10,6 +10,11 @@ data/raw_ava/
 data/processed_ava/
 data/raw_wasd/
 data/processed_wasd/
+data/raw_columbia/
+data/processed_columbia/
+data/raw_avspeech/
+data/processed_avspeech/
+avspeech_extraction.log
 checkpoints/*.pt
 logs/*.csv
 logs/*.log

@@ -41,8 +41,10 @@ from torch.utils.data import DataLoader, Dataset, Sampler
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from config import (
     AVA_PROCESSED_DATASET_DIR,
+    AVSPEECH_PROCESSED_DATASET_DIR,
     BALANCED_BATCHES,
     BATCH_SIZE,
+    COLUMBIA_PROCESSED_DATASET_DIR,
     COMBINED_LANDMARKS_FILENAME,
     DATA_PROCESSED_DIR,
     MIN_DETECTED_FRAMES_RATIO,
@@ -111,6 +113,38 @@ def wasd_source(split: str) -> tuple[Path, str]:
     windowed pipelines the same way ava_source() is.
     """
     return split_csv_path(WASD_PROCESSED_DATASET_DIR, split), "wasd"
+
+
+def columbia_source(split: str) -> tuple[Path, str]:
+    """One `extra_sources` entry (see LandmarkSequenceDataset/get_dataloader
+    and their windowed counterparts) that points at the Columbia Active
+    Speaker Detection subset (scripts/dataset/download_columbia_subset.py +
+    scripts/features/process_columbia_dataset.py's output) for the given
+    logical split — same combined_landmarks.csv schema as the other three
+    sources, just rooted at config.COLUMBIA_PROCESSED_DATASET_DIR.
+
+    Same train/val/test shape as ava_source()/wasd_source(), just far
+    smaller — Columbia has only 6 discrete speaker tracks total, split
+    config.COLUMBIA_NUM_VAL_SPEAKERS/rest between val/train (see
+    download_columbia_subset.py's module docstring), so every logical split
+    has some real data, just much less of it than the other three sources.
+    """
+    return split_csv_path(COLUMBIA_PROCESSED_DATASET_DIR, split), "columbia"
+
+
+def avspeech_source(split: str) -> tuple[Path, str]:
+    """One `extra_sources` entry (see LandmarkSequenceDataset/get_dataloader
+    and their windowed counterparts) that points at the AVSpeech subset
+    (scripts/dataset/download_avspeech_subset.py + scripts/features/process_avspeech_dataset.py's
+    output) for the given logical split — same combined_landmarks.csv schema
+    as the other four sources, just rooted at config.AVSPEECH_PROCESSED_DATASET_DIR.
+
+    Every AVSpeech track is 100% SPEAKING_AUDIBLE by construction (see
+    download_avspeech_subset.py's module docstring) — added specifically to
+    grow the SPEAKING class, the minority across the other four sources
+    combined, so it never contributes NOT_SPEAKING rows.
+    """
+    return split_csv_path(AVSPEECH_PROCESSED_DATASET_DIR, split), "avspeech"
 
 
 def _frame_timestamp(image_name: str) -> float:

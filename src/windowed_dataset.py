@@ -39,13 +39,21 @@ from config import (
     WINDOW_TRAIN_STRIDE,
 )
 
-# ava_source()/wasd_source() now live in dataset.py (shared with the
-# per-frame pipeline — they're pure path resolution, nothing
-# windowing-specific) and are re-exported here so existing
+# ava_source()/wasd_source()/columbia_source()/avspeech_source() now live in dataset.py
+# (shared with the per-frame pipeline — they're pure path resolution,
+# nothing windowing-specific) and are re-exported here so existing
 # `from windowed_dataset import ava_source` call sites
 # (scripts/modeling/train/windowed_combined.py, scripts/modeling/evaluate/windowed_combined.py)
 # keep working unchanged.
-from dataset import LOGICAL_SPLITS, LandmarkSequenceDataset, ava_source, split_csv_path, wasd_source
+from dataset import (
+    LOGICAL_SPLITS,
+    LandmarkSequenceDataset,
+    ava_source,
+    avspeech_source,
+    columbia_source,
+    split_csv_path,
+    wasd_source,
+)
 
 
 class WindowedLandmarkSequenceDataset(Dataset):

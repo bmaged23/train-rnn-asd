@@ -529,6 +529,172 @@ WASD_SUBSET_VIDEOS = None
 # disk, so more workers doesn't reliably mean more throughput.
 NUM_WASD_DOWNLOAD_WORKERS = 8
 
+# --- scripts/dataset/download_columbia_subset.py (added 2026-07-25) ---
+# Columbia Active Speaker Detection dataset (Chakravarty & Tuytelaars, ACM
+# ICMI 2016) — a fourth raw source, small (one 87-minute panel discussion,
+# 6 named speakers, ~149K total labeled frames) and not intended as bulk
+# training volume the way AVA/WASD are; useful instead as an extra
+# generalization/held-out check. No official public dataset page could be
+# found despite extensive search (2026-07-25) — the video + ground-truth
+# label archive used here is the exact pair github.com/Junhua-Liao/LR-ASD's
+# Columbia_test.py already relies on for its own Columbia benchmark
+# evaluation, both independently verified working before writing the
+# download script: the YouTube video is public, and the Drive-hosted
+# col_labels.tar.gz (985KB) downloads and extracts cleanly via gdown,
+# containing genuine ground truth crediting the original paper.
+#
+# Ground truth ships very differently from AVA/WASD's already-normalized
+# [0,1] box coordinates — per-speaker txt files (framenum, TLx, TLy,
+# square-box-size, speak-flag 0/1) in PIXEL coordinates at the video's
+# native frame rate. download_columbia_subset.py converts both:
+# frame_timestamp = framenum / native_fps and box coordinates normalized by
+# width/height, using the actual downloaded video's probed fps/resolution —
+# NOT assumed to be config.DATASET_FPS, no reason this source video happens
+# to match that.
+#
+# Only one video exists, so there's no video-selection/subset-hours concept
+# the way AVA/WASD have. Instead, the 6 named speakers (each one single,
+# long, continuous track — a much coarser unit than AVA/WASD/UniTalk's many
+# short per-scene tracks) are split whole between the "train" and "val" raw
+# splits, fixed-seed shuffled — same track-level, no-leakage principle used
+# everywhere else in this project (a track's frames never cross a split
+# boundary), just applied at a much smaller N. COLUMBIA_NUM_VAL_SPEAKERS
+# controls how many go to "val" (which then further divides into
+# val_split/test_split via scripts/splits/split_columbia_val_test.py,
+# exactly like AVA/WASD); the rest go to "train".
+COLUMBIA_DATA_RAW_DIR = PROJECT_ROOT / "data" / "raw_columbia"
+COLUMBIA_RAW_CSV_DIR = COLUMBIA_DATA_RAW_DIR / "csv"
+COLUMBIA_RAW_CLIPS_VIDEOS_DIR = COLUMBIA_DATA_RAW_DIR / "clips_videos"  # no clips_audios/ — audio is never used
+COLUMBIA_PROCESSED_DATASET_DIR = PROJECT_ROOT / "data" / "processed_columbia"
+
+COLUMBIA_VIDEO_YOUTUBE_ID = "6GzxbrO0DHM"  # "Wikileaks and Academia - a Panel Discussion at Columbia SIPA"
+# col_labels.tar.gz — Drive file id verified working 2026-07-25, sourced
+# from github.com/Junhua-Liao/LR-ASD/blob/main/Columbia_test.py.
+COLUMBIA_LABELS_GDRIVE_ID = "1Tto5JBt6NsEOLFRWzyZEeV6kCCddc6wv"
+# The 6 named panelists' fusion/<name>.txt files ship the complete per-
+# speaker ground truth already merged across every tracks_*/ frame-range
+# subfolder (confirmed: fusion/bell.txt's row count exactly equals the sum
+# of every tracks_*/bell.txt) — read fusion/ directly rather than the
+# subfolders individually.
+COLUMBIA_SPEAKER_NAMES = ["bell", "boll", "lieb", "long", "sick", "abbas"]
+# 2 of 6 speakers (fixed-seed shuffled) go to the raw "val" split, the
+# remaining 4 to "train" — see comment above. With only 6 units total this
+# is necessarily coarse (the 2-speaker val pool then splits ~1/1 into
+# val_split/test_split), an inherent limit of this dataset's size, not a
+# tuning knob expected to change often.
+COLUMBIA_NUM_VAL_SPEAKERS = 2
+
+# The label txt files' pixel coordinates (TLx, TLy, size) were annotated
+# against a video at HALF the resolution of the current 1280x720 YouTube
+# upload — not documented anywhere, root-caused by reading
+# github.com/Junhua-Liao/LR-ASD's own Columbia evaluation code, which halves
+# ITS OWN face-detector coordinates (computed against this same 1280x720
+# video) before comparing them to the raw label boxes, i.e. the label boxes
+# are implicitly half-scale. Verified directly (2026-07-25): cropping one
+# real row's raw box landed on a corner logo/watermark, not a face; cropping
+# the same box scaled up by this factor landed exactly on the correct named
+# speaker's face, mouth visibly open on a speak=1 row. Applied to TLx, TLy,
+# and size uniformly before computing both the pixel crop and the CSV's
+# normalized entity_box_* coordinates.
+COLUMBIA_LABEL_SCALE_FACTOR = 2
+# One cv2.VideoCapture per speaker, opened concurrently against the same
+# downloaded video file — safe (independent capture handles) and matches
+# the natural per-speaker parallelism unit, no reason to cap below the
+# fixed speaker count.
+NUM_COLUMBIA_CROP_WORKERS = len(COLUMBIA_SPEAKER_NAMES)
+
+# --- scripts/dataset/download_avspeech_subset.py (added 2026-07-26) ---
+# AVSpeech (Google Research, "Looking to Listen at the Cocktail Party") — a
+# fifth raw source, added specifically to grow the SPEAKING class, which is
+# the minority across the other four sources combined (~30% speaking / ~70%
+# not-speaking, see project memory). Every AVSpeech segment is curated by
+# its own authors to guarantee the visible person is the sole active speaker
+# for the segment's entire 3-10s duration, so every extracted frame gets
+# label_id=1 (SPEAKING_AUDIBLE) unconditionally — this source never
+# contributes NOT_SPEAKING rows, by design.
+#
+# Unlike UniTalk-ASD/AVA/WASD/Columbia, AVSpeech does NOT ship a per-frame
+# (or even per-clip) face bounding box — its CSV gives only
+# (youtube_id, start_sec, end_sec, x_norm, y_norm), a single face-CENTER
+# hint at the segment's start frame. This is the first source needing this
+# project's own face detection (see RETINAFACE_GPU_ID below) rather than
+# cropping an already-provided box.
+#
+# The documented official download link (storage.cloud.google.com/avspeech-
+# files/...) requires an authenticated Google account (confirmed via `curl
+# -I`: 403 / login redirect) — not actually anonymously public despite
+# being "the" documented link. Verified working anonymous mirror instead
+# (2026-07-26, confirmed via direct curl: 2,621,845 rows, no header, no auth
+# wall): huggingface.co/datasets/bbrothers/avspeech-metadata.
+AVSPEECH_TRAIN_CSV_URL = (
+    "https://huggingface.co/datasets/bbrothers/avspeech-metadata/resolve/main/avspeech_train.csv"
+)
+AVSPEECH_DATA_RAW_DIR = PROJECT_ROOT / "data" / "raw_avspeech"
+AVSPEECH_RAW_CSV_DIR = AVSPEECH_DATA_RAW_DIR / "csv"
+AVSPEECH_RAW_CLIPS_VIDEOS_DIR = AVSPEECH_DATA_RAW_DIR / "clips_videos"  # no clips_audios/ — audio is never used
+AVSPEECH_PROCESSED_DATASET_DIR = PROJECT_ROOT / "data" / "processed_avspeech"
+# Scratch space for fetched subclips before cropping, deleted once cropping
+# finishes — same rationale as WASD_STAGING_DIR.
+AVSPEECH_STAGING_DIR = AVSPEECH_DATA_RAW_DIR / "_staging"
+# Resumability manifest — one video_id per line, written the moment that
+# segment is attempted (success OR failure), so a rerun with a larger
+# AVSPEECH_TARGET_HOURS only fetches the NEW segments beyond what a
+# previous run already tried, instead of re-fetching everything from
+# scratch (added 2026-07-27 after the first full run: true real-world
+# success rate was ~46.7%, far lower than an early small-sample estimate
+# suggested, so most re-attempts of already-tried segments would just
+# re-hit the same still-unavailable videos — not worth redoing). Lives
+# directly under AVSPEECH_DATA_RAW_DIR, NOT inside AVSPEECH_STAGING_DIR,
+# since staging is deleted at the end of every run.
+AVSPEECH_ATTEMPTED_MANIFEST = AVSPEECH_DATA_RAW_DIR / "attempted_video_ids.txt"
+
+# Target REALIZED hours (actual usable, post-attrition, cropped-and-labeled
+# footage in {train,val}_orig.csv — see compute_realized_hours() in the
+# download script), NOT raw selected-segment duration. The download script
+# auto-loops — selecting progressively larger raw batches via
+# select_next_batch(), sized off the empirically observed realized/raw
+# success rate — until this REALIZED total is actually met, so this value
+# means exactly what it says and needs no manual raw-hours translation.
+# History: an earlier one-shot design targeted 67.0h as RAW hours to
+# attempt, picked from an early small-sample success-rate estimate of
+# ~84.2%; that run actually completed (2026-07-26) at only 31.31h realized
+# — a true success rate of ~46.7%, far lower than the small sample
+# suggested. That clunky "guess raw hours, manually recompute, rerun"
+# workflow is exactly what this auto-looping redesign (2026-07-27)
+# replaced. The original ask was 67 hours realized, unchanged here — only
+# the semantics changed, not the number.
+AVSPEECH_TARGET_HOURS = 67.0
+# This project's own train/val split (AVSpeech ships no train/val
+# partition relevant to a selected subset) — fixed-seed shuffle by
+# youtube_id, same _SELECTION_SEED=42 convention as AVA/WASD's own subset
+# selection.
+AVSPEECH_VAL_FRACTION = 0.2
+
+# batch-face (PyPI, MIT) — RetinaFace detection, GPU-selectable, and built
+# around batched multi-frame GPU inference rather than one image at a time.
+# Chosen over retinaface-pytorch (pins exact torch==1.9.0/torchvision==
+# 0.10.0, would conflict with this project's installed torch) and
+# retina-face (TensorFlow-based — a second, unwanted heavy ML framework +
+# separate GPU/CUDA stack to reconcile). Uses PyTorch CUDA directly, so
+# unlike MediaPipe's GPU delegate (see MEDIAPIPE_DELEGATE above) it's
+# unaffected by this server's NVIDIA kernel/userspace driver mismatch —
+# confirmed directly (2026-07-26): loaded on GPU and ran real detection
+# (score 0.999 on an actual face) with no EGL-style failure.
+RETINAFACE_GPU_ID = 0
+# No built-in identity tracking in batch-face/RetinaFace — same face is
+# picked frame-to-frame by nearest box-center distance to the previous
+# frame's chosen box (first frame anchored to the CSV's (x_norm, y_norm)
+# hint instead). If no detected face in a frame is within this pixel
+# distance of the previous frame's chosen center, tracking is considered
+# lost and the rest of that clip is skipped — never silently jump to a
+# different person's face just because the real target was briefly
+# undetected (occlusion, turned head, etc.).
+RETINAFACE_MAX_TRACK_DISTANCE_PX = 100
+# Per source-video yt-dlp invocation, mirrors NUM_WASD_DOWNLOAD_WORKERS —
+# bound by YouTube-side throttling risk on concurrent connections, not
+# local CPU/disk.
+NUM_AVSPEECH_DOWNLOAD_WORKERS = 8
+
 # --- scripts/modeling/train/windowed_combined.py / scripts/modeling/evaluate/windowed_combined.py
 #     (added 2026-07-17) ---
 # Trains WindowedSpeakingDetectorRNN from scratch on UniTalk-ASD + AVA
