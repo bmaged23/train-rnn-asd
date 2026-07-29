@@ -14,7 +14,10 @@ data/raw_columbia/
 data/processed_columbia/
 data/raw_avspeech/
 data/processed_avspeech/
+data/raw_speakingfaces/
+data/processed_speakingfaces/
 avspeech_extraction.log
+speakingfaces_extraction.log
 checkpoints/*.pt
 logs/*.csv
 logs/*.log

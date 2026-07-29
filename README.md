@@ -23,7 +23,7 @@ outperforms the per-frame model on this data (see Results below).
 
 ## Datasets
 
-Five datasets share the same processed schema (`combined_landmarks.csv`) and
+Six datasets share the same processed schema (`combined_landmarks.csv`) and
 can be combined for training:
 
 - **UniTalk-ASD** — the base dataset (HuggingFace, `plnguyen2908/UniTalk-ASD`)
@@ -32,14 +32,18 @@ can be combined for training:
   WASD's own video archive hits a Google Drive download quota
 - **Columbia** — a small (6 speaker tracks) Active Speaker Detection dataset
 - **AVSpeech** — Google's "Looking to Listen at the Cocktail Party" dataset;
-  added to grow the SPEAKING class, the minority (~30%) across the other four
-  sources combined. Ships no bounding box, only a face-center hint, so this is
-  the only source using this project's own face detection (RetinaFace,
+  added to grow the SPEAKING class, the minority across the other sources
+  combined. Ships no bounding box, only a face-center hint, so this is the
+  only source using this project's own face detection (RetinaFace,
   GPU-batched) instead of cropping a provided box.
+- **SpeakingFaces** — ISSAI's lab-recorded voice-command dataset; added to
+  grow the NOT_SPEAKING class instead, the opposite gap from AVSpeech. Only
+  its silent-and-still session is used (the voice-command session's public
+  release isn't continuous enough to support this project's windowed model).
 
 Each dataset has its own download → feature-extraction → split scripts (see
 Pipeline below); training scripts opt into extra datasets via
-`extra_sources=[ava_source(split), wasd_source(split), columbia_source(split), avspeech_source(split)]`.
+`extra_sources=[ava_source(split), wasd_source(split), columbia_source(split), avspeech_source(split), speakingfaces_source(split)]`.
 
 ## Pipeline
 
@@ -53,6 +57,7 @@ scripts/
 │   ├── download_wasd_subset.py      WASD subset (via YouTube)
 │   ├── download_columbia_subset.py  Columbia subset
 │   ├── download_avspeech_subset.py  AVSpeech subset (via YouTube + RetinaFace)
+│   ├── download_speakingfaces_subset.py  SpeakingFaces subset (silent session only)
 │   └── download_model.py            MediaPipe FaceLandmarker model
 │
 ├── features/    crop faces + extract landmarks into combined_landmarks.csv
@@ -61,14 +66,16 @@ scripts/
 │   ├── process_ava_dataset.py      same, for the AVA subset
 │   ├── process_wasd_dataset.py     same, for the WASD subset
 │   ├── process_columbia_dataset.py same, for the Columbia subset
-│   └── process_avspeech_dataset.py same, for the AVSpeech subset
+│   ├── process_avspeech_dataset.py same, for the AVSpeech subset
+│   └── process_speakingfaces_dataset.py same, for the SpeakingFaces subset
 │
 ├── splits/      carve the raw "val" pool into held-out val/test
 │   ├── split_val_test.py          UniTalk-ASD
 │   ├── split_ava_val_test.py      AVA
 │   ├── split_wasd_val_test.py     WASD
 │   ├── split_columbia_val_test.py Columbia
-│   └── split_avspeech_val_test.py AVSpeech
+│   ├── split_avspeech_val_test.py AVSpeech
+│   └── split_speakingfaces_val_test.py SpeakingFaces
 │
 └── modeling/
     ├── train/       train a model from scratch (5 variants — see below)
@@ -88,7 +95,7 @@ never overwrite each other and stay directly comparable:
 | `frames_combined.py` | per-frame | UniTalk-ASD + AVA |
 | `windowed.py` | windowed | UniTalk-ASD only |
 | `windowed_combined.py` | windowed | UniTalk-ASD + AVA |
-| `windowed_all_combined.py` | windowed | UniTalk-ASD + AVA + WASD + Columbia + AVSpeech |
+| `windowed_all_combined.py` | windowed | UniTalk-ASD + AVA + WASD + Columbia + AVSpeech + SpeakingFaces |
 
 ## Setup
 
@@ -125,29 +132,32 @@ python scripts/modeling/evaluate/windowed.py --checkpoint best
 ```
 
 Swap `dataset`/`process_dataset`/`split_val_test` for their
-`_ava`/`_wasd`/`_columbia`/`_avspeech` counterparts to bring in the other
-datasets, and use a `_combined`/`_all_combined` train/evaluate script to
-train on more than one dataset at once.
+`_ava`/`_wasd`/`_columbia`/`_avspeech`/`_speakingfaces` counterparts to bring
+in the other datasets, and use a `_combined`/`_all_combined` train/evaluate
+script to train on more than one dataset at once.
 
 ## Results
 
 Windowed model, trained from scratch on UniTalk-ASD + AVA + WASD + Columbia +
-AVSpeech combined, evaluated on the held-out combined test split (14,938
-windows):
+AVSpeech + SpeakingFaces combined, evaluated on the held-out combined test
+split (22,030 windows):
 
 | Metric | Value |
 |---|---|
-| Accuracy | 90.43% |
-| Precision | 91.61% |
-| Recall | 90.67% |
-| F1 | 91.14% |
-| ROC-AUC | 96.85% |
-| PR-AUC | 97.54% |
+| Accuracy | 92.90% |
+| Precision | 93.43% |
+| Recall | 93.01% |
+| F1 | 93.22% |
+| ROC-AUC | 98.29% |
+| PR-AUC | 98.53% |
 
-Adding Columbia + AVSpeech to the previous UniTalk-ASD + AVA + WASD baseline
-improved validation loss from 0.3136 to 0.2314 and validation accuracy from
-86.22% to 90.34% — AVSpeech in particular grows the SPEAKING class, the
-minority across the other sources combined.
+Adding SpeakingFaces (silent-session data, growing the NOT_SPEAKING class)
+on top of the previous 5-dataset baseline improved validation loss from
+0.2314 to 0.1722 and validation accuracy from 90.34% to 92.96%. Across the
+whole integration history: accuracy has climbed from 86.84% (3 datasets) to
+90.43% (5 datasets, after fixing a class-imbalance gap with AVSpeech) to
+92.90% (6 datasets, after closing the opposite gap with SpeakingFaces) —
+each addition targeted the class the combined data was shortest on.
 
 ## Project structure
 

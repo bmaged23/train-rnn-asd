@@ -1,8 +1,8 @@
 """Evaluates a scripts/modeling/train/windowed_all_combined.py checkpoint on the
 held-out "test" split — UniTalk-ASD + AVA-ActiveSpeaker + WASD + Columbia +
-AVSpeech combined (same extra_sources the training script used), so the
-reported metrics reflect the same combined distribution the model was
-trained and validated on. Otherwise identical to scripts/modeling/evaluate/windowed_combined.py
+AVSpeech + SpeakingFaces combined (same extra_sources the training script
+used), so the reported metrics reflect the same combined distribution the
+model was trained and validated on. Otherwise identical to scripts/modeling/evaluate/windowed_combined.py
 (full binary-classification metric suite: accuracy, precision, recall, F1,
 confusion matrix, ROC-AUC, PR-AUC).
 
@@ -58,7 +58,14 @@ from config import (
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent / "src"))
 from dataset import NUM_INPUT_FEATURES
-from windowed_dataset import ava_source, avspeech_source, columbia_source, get_windowed_dataloader, wasd_source
+from windowed_dataset import (
+    ava_source,
+    avspeech_source,
+    columbia_source,
+    get_windowed_dataloader,
+    speakingfaces_source,
+    wasd_source,
+)
 from windowed_model import WindowedSpeakingDetectorRNN
 from metrics import compute_metrics, format_report, plot_confusion_matrix, plot_pr_curve, plot_roc_curve
 from train_utils import reset_dir
@@ -128,7 +135,10 @@ def main(checkpoint: str = "best") -> dict:
         f"(NUM_INPUT_FEATURES={NUM_INPUT_FEATURES})  window_size={WINDOW_SIZE} — must match the "
         f"checkpoint's training config or model.load_state_dict below will raise a shape-mismatch error"
     )
-    logger.info("data sources: UniTalk-ASD + AVA-ActiveSpeaker + WASD + Columbia + AVSpeech (combined test split)")
+    logger.info(
+        "data sources: UniTalk-ASD + AVA-ActiveSpeaker + WASD + Columbia + AVSpeech + SpeakingFaces "
+        "(combined test split)"
+    )
 
     checkpoint_path = CHECKPOINTS_DIR / _CHECKPOINT_CHOICES[checkpoint]
     if not checkpoint_path.exists():
@@ -141,7 +151,10 @@ def main(checkpoint: str = "best") -> dict:
     loader = get_windowed_dataloader(
         SPLIT,
         shuffle=False,
-        extra_sources=[ava_source(SPLIT), wasd_source(SPLIT), columbia_source(SPLIT), avspeech_source(SPLIT)],
+        extra_sources=[
+            ava_source(SPLIT), wasd_source(SPLIT), columbia_source(SPLIT),
+            avspeech_source(SPLIT), speakingfaces_source(SPLIT),
+        ],
     )
     y_true, y_pred, y_prob = collect_predictions(model, loader, device)
 

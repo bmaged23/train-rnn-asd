@@ -695,6 +695,77 @@ RETINAFACE_MAX_TRACK_DISTANCE_PX = 100
 # local CPU/disk.
 NUM_AVSPEECH_DOWNLOAD_WORKERS = 8
 
+# --- scripts/dataset/download_speakingfaces_subset.py (added 2026-07-28) ---
+# SpeakingFaces (ISSAI, "SpeakingFaces: A Large-Scale Multimodal Dataset of
+# Voice Commands with Visual and Thermal Video Streams", CC-BY-4.0) — a
+# sixth raw source, added to grow the NOT_SPEAKING class instead (the
+# opposite gap from AVSpeech): 142 lab-recorded subjects, each doing 2
+# trials of 2 sessions (Session 1 silent-and-still, Session 2 reading voice
+# commands) across 9 fixed camera angles. Only Session 1 (silent) is used —
+# see download script's module docstring for why Session 2 is skipped
+# entirely (its public release only ships ~4-6 sparse, non-consecutive
+# frames per spoken command, not continuous video, so it can't support this
+# project's 50-frame windowed model at all; confirmed via a pilot download
+# and frame-index gap-check 2026-07-28 before committing to the source).
+# Session 1 IS fully continuous — verified 900/900 frames present with zero
+# gaps for every camera position checked — so every frame gets label_id=0
+# (NOT_SPEAKING) unconditionally, mirroring AVSpeech's constant-label
+# approach but for the opposite class.
+#
+# Hosted directly on HuggingFace as one zip per subject
+# (issai/Speaking_Faces, image_only/sub_{N}_io.zip) — no YouTube re-fetch,
+# no throttling risk, unlike WASD/AVSpeech. sub_2_io.zip is a known-corrupt
+# 0-byte file on the source repo itself (confirmed via the HF API's own
+# file-size metadata) — skipped automatically, not a bug in this script.
+#
+# Ships PNGs, not JPGs — kept as-is (config.IMAGE_EXTENSIONS already
+# includes ".png", and process_dataset.py's DatasetProcessor only ever
+# reads image_name.stem, never assumes .jpg) rather than re-encoding, to
+# avoid a wasted lossy recompression pass over ~2.3M images.
+#
+# Each subject's zip contains 3 image "modalities" per position (thermal,
+# raw rgb, and aligned rgb — the visual-thermal-synchronized one, filename's
+# last field == "3") plus duplicate unaligned copies; only the aligned rgb
+# stream is extracted. person_id = f"sub{{N}}_trial{{T}}_pos{{P}}" — a
+# globally unique key (not the AVSpeech-style shared-constant mistake) even
+# though the on-disk layout nests position under a
+# f"sub{{N}}_trial{{T}}"-named video_id folder.
+SPEAKINGFACES_HF_REPO_ID = "issai/Speaking_Faces"
+SPEAKINGFACES_NUM_SUBJECTS = 142
+SPEAKINGFACES_NUM_TRIALS = 2
+SPEAKINGFACES_NUM_POSITIONS = 9
+SPEAKINGFACES_FRAMES_PER_POSITION = 900  # verified continuous 1..900, no gaps
+# Native capture rate, 28fps — UNLIKE download_columbia_subset.py's
+# native-fps exception, this source IS resampled down to config.DATASET_FPS
+# (25) so a "50-frame window" means the same 2 real seconds across every
+# combined source (at native 28fps, 50 raw frames would only be ~1.79s —
+# would silently break windowed-model comparability across datasets).
+# Resampled via nearest-frame selection onto a 25fps grid (900 frames over
+# 32.14s at 28fps -> ~804 frames at 25fps), not ffmpeg, since the source is
+# already-extracted discrete PNG frames, not a video file.
+SPEAKINGFACES_NATIVE_FPS = 28
+SPEAKINGFACES_ALIGNED_RGB_MODALITY = "3"  # filename's last field for the visual-thermal-aligned rgb stream
+SPEAKINGFACES_DATA_RAW_DIR = PROJECT_ROOT / "data" / "raw_speakingfaces"
+SPEAKINGFACES_RAW_CSV_DIR = SPEAKINGFACES_DATA_RAW_DIR / "csv"
+SPEAKINGFACES_RAW_CLIPS_VIDEOS_DIR = SPEAKINGFACES_DATA_RAW_DIR / "clips_videos"
+SPEAKINGFACES_PROCESSED_DATASET_DIR = PROJECT_ROOT / "data" / "processed_speakingfaces"
+# Scratch space for each subject's downloaded zip, deleted right after that
+# subject's frames are extracted — same rationale as AVSPEECH_STAGING_DIR,
+# avoids keeping the ~1.2TB of raw zips AND the extracted frames on disk at
+# once.
+SPEAKINGFACES_STAGING_DIR = SPEAKINGFACES_DATA_RAW_DIR / "_staging"
+# Resumability manifest — one "sub{N}" per line, written only once that
+# subject's frames are fully extracted (see [[avspeech-manifest-bug]]-style
+# caution: append-only, never rewritten in place).
+SPEAKINGFACES_COMPLETED_SUBJECTS_MANIFEST = SPEAKINGFACES_DATA_RAW_DIR / "completed_subjects.txt"
+# This project's own train/"val" (pre-val/test-split) partition uses the
+# dataset's own official per-subject Train/Validation/Test column
+# (metadata/subjects.csv) rather than inventing a new fixed-seed shuffle —
+# Validation+Test subjects both fold into this project's raw "val" pool,
+# which scripts/splits/split_speakingfaces_val_test.py then re-splits into
+# val_split/test_split the same stratified way as every other source.
+NUM_SPEAKINGFACES_DOWNLOAD_WORKERS = 4  # HF Hub downloads over plain HTTPS, not YouTube — a few concurrent zip fetches is fine
+
 # --- scripts/modeling/train/windowed_combined.py / scripts/modeling/evaluate/windowed_combined.py
 #     (added 2026-07-17) ---
 # Trains WindowedSpeakingDetectorRNN from scratch on UniTalk-ASD + AVA

@@ -1,20 +1,23 @@
 """Trains WindowedSpeakingDetectorRNN from scratch on UniTalk-ASD + AVA +
-WASD + Columbia + AVSpeech combined (src/windowed_dataset.py's
+WASD + Columbia + AVSpeech + SpeakingFaces combined (src/windowed_dataset.py's
 extra_sources=[ava_source(split), wasd_source(split), columbia_source(split),
-avspeech_source(split)]) — a fresh run, NOT fine-tuning
-scripts/modeling/train/windowed.py or scripts/modeling/train/windowed_combined.py's
-existing checkpoints. Otherwise structurally identical to those scripts (same
-architecture, seed, determinism settings, optimizer, early stopping) so all
-runs are directly comparable — this is meant to answer "does adding
-WASD/Columbia/AVSpeech on top of AVA help?", not to introduce confounding
-changes alongside the new data. Columbia contributes comparatively little
-data (6 discrete speaker tracks total vs. the other sources'
-hundreds/thousands) — see config.COLUMBIA_NUM_VAL_SPEAKERS's comment for
-that dataset's size limits. AVSpeech is 100% SPEAKING_AUDIBLE by
-construction (see download_avspeech_subset.py's module docstring) — added
-specifically to grow the SPEAKING class, the minority across the other four
-sources combined. See [[ava-dataset-integration]] in project memory for why
-this is a from-scratch run rather than fine-tuning (explicit user
+avspeech_source(split), speakingfaces_source(split)]) — a fresh run, NOT
+fine-tuning scripts/modeling/train/windowed.py or
+scripts/modeling/train/windowed_combined.py's existing checkpoints. Otherwise
+structurally identical to those scripts (same architecture, seed, determinism
+settings, optimizer, early stopping) so all runs are directly comparable —
+this is meant to answer "does adding WASD/Columbia/AVSpeech/SpeakingFaces on
+top of AVA help?", not to introduce confounding changes alongside the new
+data. Columbia contributes comparatively little data (6 discrete speaker
+tracks total vs. the other sources' hundreds/thousands) — see
+config.COLUMBIA_NUM_VAL_SPEAKERS's comment for that dataset's size limits.
+AVSpeech is 100% SPEAKING_AUDIBLE by construction (see
+download_avspeech_subset.py's module docstring) — added specifically to grow
+the SPEAKING class, the minority across the other sources combined.
+SpeakingFaces is the mirror image — 100% NOT_SPEAKING by construction (see
+download_speakingfaces_subset.py's module docstring), added to grow the
+opposite class instead. See [[ava-dataset-integration]] in project memory
+for why this is a from-scratch run rather than fine-tuning (explicit user
 correction), and for the AVA subset's own provenance/decisions.
 
 pos_weight is computed from the combined train split's own window-label
@@ -83,7 +86,14 @@ from config import (
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent / "src"))
 from dataset import NUM_INPUT_FEATURES
-from windowed_dataset import ava_source, avspeech_source, columbia_source, get_windowed_dataloader, wasd_source
+from windowed_dataset import (
+    ava_source,
+    avspeech_source,
+    columbia_source,
+    get_windowed_dataloader,
+    speakingfaces_source,
+    wasd_source,
+)
 from windowed_model import WindowedSpeakingDetectorRNN
 from metrics import build_training_report, plot_accuracy_curve, plot_loss_curve
 from train_utils import reset_dir
@@ -194,17 +204,24 @@ def main() -> None:
         f"(NUM_INPUT_FEATURES={NUM_INPUT_FEATURES})  window_size={WINDOW_SIZE}"
     )
     logger.info(f"balanced_batches: {BALANCED_BATCHES}")
-    logger.info("data sources: UniTalk-ASD + AVA-ActiveSpeaker + WASD + Columbia + AVSpeech (combined, from scratch)")
+    logger.info(
+        "data sources: UniTalk-ASD + AVA-ActiveSpeaker + WASD + Columbia + AVSpeech + SpeakingFaces "
+        "(combined, from scratch)"
+    )
 
     train_loader = get_windowed_dataloader(
         "train",
         extra_sources=[
-            ava_source("train"), wasd_source("train"), columbia_source("train"), avspeech_source("train"),
+            ava_source("train"), wasd_source("train"), columbia_source("train"),
+            avspeech_source("train"), speakingfaces_source("train"),
         ],
     )
     val_loader = get_windowed_dataloader(
         "val",
-        extra_sources=[ava_source("val"), wasd_source("val"), columbia_source("val"), avspeech_source("val")],
+        extra_sources=[
+            ava_source("val"), wasd_source("val"), columbia_source("val"),
+            avspeech_source("val"), speakingfaces_source("val"),
+        ],
     )
 
     train_labels = np.array(train_loader.dataset.labels)

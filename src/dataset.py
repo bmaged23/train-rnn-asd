@@ -50,6 +50,7 @@ from config import (
     MIN_DETECTED_FRAMES_RATIO,
     MOUTH_LANDMARK_INDICES,
     NUM_FACE_LANDMARKS,
+    SPEAKINGFACES_PROCESSED_DATASET_DIR,
     TEST_SPLIT_FILENAME,
     USE_MAR,
     USE_MOUTH_LANDMARKS_ONLY,
@@ -145,6 +146,21 @@ def avspeech_source(split: str) -> tuple[Path, str]:
     combined, so it never contributes NOT_SPEAKING rows.
     """
     return split_csv_path(AVSPEECH_PROCESSED_DATASET_DIR, split), "avspeech"
+
+
+def speakingfaces_source(split: str) -> tuple[Path, str]:
+    """One `extra_sources` entry (see LandmarkSequenceDataset/get_dataloader
+    and their windowed counterparts) that points at the SpeakingFaces subset
+    (scripts/dataset/download_speakingfaces_subset.py + scripts/features/process_speakingfaces_dataset.py's
+    output) for the given logical split — same combined_landmarks.csv schema
+    as the other five sources, just rooted at config.SPEAKINGFACES_PROCESSED_DATASET_DIR.
+
+    Every SpeakingFaces track is 100% NOT_SPEAKING by construction (see
+    download_speakingfaces_subset.py's module docstring) — added specifically
+    to grow the NOT_SPEAKING class, the opposite gap from AVSpeech, so it
+    never contributes SPEAKING_AUDIBLE rows.
+    """
+    return split_csv_path(SPEAKINGFACES_PROCESSED_DATASET_DIR, split), "speakingfaces"
 
 
 def _frame_timestamp(image_name: str) -> float:

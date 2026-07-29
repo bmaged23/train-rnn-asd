@@ -39,7 +39,7 @@ from config import (
     WINDOW_TRAIN_STRIDE,
 )
 
-# ava_source()/wasd_source()/columbia_source()/avspeech_source() now live in dataset.py
+# ava_source()/wasd_source()/columbia_source()/avspeech_source()/speakingfaces_source() now live in dataset.py
 # (shared with the per-frame pipeline — they're pure path resolution,
 # nothing windowing-specific) and are re-exported here so existing
 # `from windowed_dataset import ava_source` call sites
@@ -51,6 +51,7 @@ from dataset import (
     ava_source,
     avspeech_source,
     columbia_source,
+    speakingfaces_source,
     split_csv_path,
     wasd_source,
 )
