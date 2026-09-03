@@ -1,8 +1,38 @@
 """Downloads a subset (config.AVSPEECH_TARGET_HOURS) of AVSpeech (Google
 Research, "Looking to Listen at the Cocktail Party," CC-BY-4.0) and reshapes
 it into the data/raw/ layout UniTalk-ASD already uses:
-    data/raw_avspeech/clips_videos/<split>/<video_id>/spk/<frame_timestamp:.2f>.jpg
+    data/raw_avspeech/clips_videos/<split>/<video_id>/<entity_id>/<frame_timestamp:.2f>.jpg
     data/raw_avspeech/csv/<split>_orig.csv
+
+NAMING (verified against real output 2026-09-01 — an earlier version of this
+docstring wrongly showed a literal "spk" as the entity directory, which no
+longer matches what the code writes and cost real time during a CSV recovery):
+
+    <video_id>   = "<youtube_id>_<start>-<end>"  e.g.  qRbHvGoHpPg_243.70-252.47
+                   youtube_id is AVSpeech's own 11-char YouTube id; start/end
+                   are the segment bounds from AVSpeech's CSV, "%.2f". Note the
+                   youtube_id itself may contain "_" and "-", so split it off
+                   with rsplit("_", 1) — never split(), never split("-").
+
+    <entity_id>  = THE SAME STRING AS <video_id>, repeated as a nested dir.
+                   Not "spk". AVSpeech has exactly one tracked person per
+                   segment, so entity_id/instance_id are set to the clip's own
+                   video_id (reasoning further down this docstring). The full
+                   path therefore repeats the id twice:
+                       clips_videos/train/<id>/<id>/0.32.jpg
+
+    frame file   = "<frame_timestamp:.2f>.jpg", the timestamp RELATIVE to the
+                   clip start, e.g. 0.32.jpg, 7.24.jpg. This is the join key
+                   process_dataset.py::_load_labels() matches against the CSV's
+                   frame_timestamp column, formatted the same way.
+
+    yt-dlp temp  = "<source_id>_<section_start>-<section_end>.<ext>" while
+                   downloading. These are NOT predictable by re-formatting our
+                   own requested bounds: yt-dlp renders section_start/end with
+                   Python's default float-to-str, which strips trailing zeros
+                   (30.200 -> "30.2"). fetch_subclips_for_source() therefore
+                   parses the produced filenames back into floats and matches
+                   numerically rather than by string equality.
 so scripts/features/process_dataset.py's DatasetProcessor can run over it
 unmodified, just pointed at config.AVSPEECH_RAW_CLIPS_VIDEOS_DIR /
 config.AVSPEECH_RAW_CSV_DIR (see scripts/features/process_avspeech_dataset.py).
@@ -110,6 +140,17 @@ from config import (
     AVSPEECH_RAW_CLIPS_VIDEOS_DIR,
     AVSPEECH_RAW_CSV_DIR,
     AVSPEECH_STAGING_DIR,
+    AVSPEECH_BLOCK_SIGNATURES,
+    AVSPEECH_BLOCK_COOLDOWN_MAX_SECONDS,
+    AVSPEECH_BLOCK_COOLDOWN_SECONDS,
+    AVSPEECH_HEALTHY_STREAK_TO_SCALE_UP,
+    AVSPEECH_WORKERS_CEILING,
+    AVSPEECH_WORKERS_FLOOR,
+    AVSPEECH_WATCHDOG_MIN_PRODUCTIVE,
+    AVSPEECH_WATCHDOG_WINDOW,
+    AVSPEECH_YTDLP_MAX_SLEEP_INTERVAL,
+    AVSPEECH_YTDLP_SLEEP_INTERVAL,
+    AVSPEECH_YTDLP_SLEEP_REQUESTS,
     AVSPEECH_TARGET_HOURS,
     AVSPEECH_TRAIN_CSV_URL,
     AVSPEECH_VAL_FRACTION,
@@ -223,13 +264,141 @@ def load_existing_csv_rows(split: str) -> list[list]:
         return rows
 
 
+import threading
+import time as _time
+
+
+class ConcurrencyGovernor:
+    """Runtime-adjustable download concurrency (see config.AVSPEECH_WORKERS_*).
+
+    The thread pool is always created at CEILING size; this gates how many of
+    those threads may be inside a yt-dlp call at once, so the limit can move
+    mid-batch (batches run ~20h, far too coarse to adapt at boundaries).
+
+    Health is judged on TWO signals, because judging it on error strings alone
+    failed badly on 2026-09-01:
+      1. explicit block signatures in yt-dlp stderr, and
+      2. a THROUGHPUT WATCHDOG - if a window of attempts produces almost no
+         clips, that is a block no matter what the errors said. A missing JS
+         challenge solver made every download fail with a message matching no
+         signature, so the old governor scored every failure as healthy and sat
+         producing nothing for 5.5 hours.
+
+    Backoff is exponential per consecutive block (a fixed cooldown just thrashed
+    at 30-minute intervals for 13 hours), and resets once real output resumes.
+    """
+
+    def __init__(self, start: int, floor: int, ceiling: int, cooldown: int, streak: int,
+                 cooldown_max: int, window: int, min_productive: int):
+        self._cv = threading.Condition()
+        self.limit = max(floor, min(start, ceiling))
+        self.floor, self.ceiling = floor, ceiling
+        self.base_cooldown, self.cooldown_max = cooldown, cooldown_max
+        self.streak_needed = streak
+        self.window, self.min_productive = window, min_productive
+        self._active = 0
+        self._streak = 0.0
+        self._resume_at = 0.0
+        self._consecutive_blocks = 0
+        self._win_attempts = 0
+        self._win_productive = 0
+        self.blocks = 0
+
+    # ---- gate -------------------------------------------------------------
+    def acquire(self) -> None:
+        with self._cv:
+            while True:
+                wait = self._resume_at - _time.time()
+                if wait <= 0 and self._active < self.limit:
+                    self._active += 1
+                    return
+                self._cv.wait(timeout=min(wait, 5.0) if wait > 0 else 1.0)
+
+    def release(self) -> None:
+        with self._cv:
+            self._active -= 1
+            self._cv.notify_all()
+
+    # ---- health -----------------------------------------------------------
+    def _trip(self, reason: str) -> None:
+        """Caller must hold self._cv."""
+        self.blocks += 1
+        self._consecutive_blocks += 1
+        old = self.limit
+        self.limit = max(self.floor, self.limit // 2)
+        self._streak = 0.0
+        self._win_attempts = self._win_productive = 0
+        # FIX 2: exponential backoff, so a persistent ban is not retried every
+        # 30 minutes forever.
+        cooldown = min(self.base_cooldown * (2 ** (self._consecutive_blocks - 1)),
+                       self.cooldown_max)
+        self._resume_at = _time.time() + cooldown
+        at_floor = " (already at floor)" if old == self.limit else ""
+        print(f"\n*** BLOCKED [{reason}] - workers {old} -> {self.limit}{at_floor}, "
+              f"pausing {cooldown/60:.0f} min (block #{self.blocks}, "
+              f"consecutive #{self._consecutive_blocks}). Affected videos are NOT marked "
+              f"attempted, so they will be retried.", flush=True)
+        self._cv.notify_all()
+
+    def on_block(self) -> None:
+        """An explicit block signature was seen in yt-dlp's stderr."""
+        with self._cv:
+            self._trip("signature")
+
+    def on_result(self, produced: bool) -> None:
+        """One source video finished without raising.
+
+        FIX 3: only a video that actually produced clips counts as health - a
+        dead/unavailable video proves nothing about the link.
+        FIX 1: the watchdog trips on sustained zero output even when no error
+        string matched.
+        """
+        with self._cv:
+            self._win_attempts += 1
+            if produced:
+                self._win_productive += 1
+                self._consecutive_blocks = 0     # real output clears the backoff ladder
+                self._streak += 1.0
+            else:
+                # FIX 4: decay rather than reset, so intermittent duds do not
+                # make recovery unreachable (0 step-ups were observed in 13h).
+                self._streak = max(0.0, self._streak - 0.25)
+
+            if self._win_attempts >= self.window:
+                starved = self._win_productive < self.min_productive
+                self._win_attempts = self._win_productive = 0
+                if starved:
+                    self._trip("watchdog: no output")
+                    return
+
+            if self._streak >= self.streak_needed and self.limit < self.ceiling:
+                self._streak = 0.0
+                self.limit += 1
+                print(f"\n*** healthy - workers -> {self.limit}", flush=True)
+                self._cv.notify_all()
+
+
+GOVERNOR: "ConcurrencyGovernor | None" = None
+
+
+class YouTubeBlockedError(RuntimeError):
+    """Raised when yt-dlp reports a 429 / bot-check rather than a per-video
+    failure. Fatal by design — see config.AVSPEECH_BLOCK_SIGNATURES."""
+
+
 def fetch_subclips_for_source(source_id: str, specs: list[tuple[str, float, float]], out_dir: Path) -> dict[str, Path]:
     """specs: list of (video_id, start, end) all belonging to source_id. One
     yt-dlp call requests every section at once — same pattern as
     download_wasd_subset.py's function of the same name.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = ["yt-dlp", "--quiet", "--no-warnings"]
+    # NOT --quiet/--no-warnings any more: yt-dlp's diagnostics are the only way
+    # to tell "this video is gone" apart from "YouTube is blocking us", and
+    # suppressing them is why a 6-hour blocked run reported zero errors.
+    cmd = ["yt-dlp", "--no-progress",
+           "--sleep-requests", str(AVSPEECH_YTDLP_SLEEP_REQUESTS),
+           "--sleep-interval", str(AVSPEECH_YTDLP_SLEEP_INTERVAL),
+           "--max-sleep-interval", str(AVSPEECH_YTDLP_MAX_SLEEP_INTERVAL)]
     for _video_id, start, end in specs:
         cmd += ["--download-sections", f"*{start:.3f}-{end:.3f}"]
     cmd += [
@@ -237,10 +406,26 @@ def fetch_subclips_for_source(source_id: str, specs: list[tuple[str, float, floa
         "-o", str(out_dir / f"{source_id}_%(section_start)s-%(section_end)s.%(ext)s"),
         YOUTUBE_URL_TEMPLATE.format(video_id=source_id),
     ]
+    if GOVERNOR is not None:
+        GOVERNOR.acquire()
     try:
-        subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        # A block is NOT a per-video failure — treat it as fatal for the run.
+        # Swallowing it marks every subsequent id "attempted" while nothing
+        # downloads, silently destroying the candidate pool.
+        stderr = proc.stderr or ""
+        for sig in AVSPEECH_BLOCK_SIGNATURES:
+            if sig.lower() in stderr.lower():
+                raise YouTubeBlockedError(
+                    f"YouTube is refusing requests ({sig!r}) — aborting before more "
+                    f"video ids are written to the attempted-manifest as though they "
+                    f"had been fairly tried. Wait for the block to clear, then rerun."
+                )
     except subprocess.TimeoutExpired:
         pass  # fall through — map whatever sections did finish before the timeout
+    finally:
+        if GOVERNOR is not None:
+            GOVERNOR.release()
 
     # yt-dlp's %(section_start)s/%(section_end)s use Python's default
     # float-to-str formatting, which strips trailing zeros (30.200 -> "30.2")
@@ -420,14 +605,24 @@ def process_batch(batch: pd.DataFrame, detector: RetinaFace, limit: int | None) 
     # bottleneck is the yt-dlp/ffmpeg subprocess (releases the GIL) with a
     # single shared GPU detector doing the batched inference — matches
     # download_wasd_subset.py's own I/O-bound threading rationale.
-    with ThreadPoolExecutor(max_workers=NUM_AVSPEECH_DOWNLOAD_WORKERS) as pool, \
+    with ThreadPoolExecutor(max_workers=AVSPEECH_WORKERS_CEILING) as pool, \
             open(AVSPEECH_ATTEMPTED_MANIFEST, "a") as manifest_file:
         futures = {
             pool.submit(process_source_video, sid, entries_by_source[sid], detector): sid for sid in source_ids
         }
         for future in tqdm(as_completed(futures), total=len(futures), desc="source videos"):
             sid = futures[future]
-            rows, n_cropped, n_failed = future.result()
+            try:
+                rows, n_cropped, n_failed = future.result()
+            except YouTubeBlockedError:
+                # Degrade, don't die: back off concurrency and pause. Crucially
+                # we skip the manifest write below, so these video ids stay
+                # eligible and are retried on a later pass.
+                if GOVERNOR is not None:
+                    GOVERNOR.on_block()
+                continue
+            if GOVERNOR is not None:
+                GOVERNOR.on_result(produced=bool(rows))
             n_cropped_total += n_cropped
             n_failed_total += n_failed
             for row in rows:
@@ -485,6 +680,21 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    global GOVERNOR
+    GOVERNOR = ConcurrencyGovernor(
+        start=NUM_AVSPEECH_DOWNLOAD_WORKERS,
+        floor=AVSPEECH_WORKERS_FLOOR,
+        ceiling=AVSPEECH_WORKERS_CEILING,
+        cooldown=AVSPEECH_BLOCK_COOLDOWN_SECONDS,
+        streak=AVSPEECH_HEALTHY_STREAK_TO_SCALE_UP,
+        cooldown_max=AVSPEECH_BLOCK_COOLDOWN_MAX_SECONDS,
+        window=AVSPEECH_WATCHDOG_WINDOW,
+        min_productive=AVSPEECH_WATCHDOG_MIN_PRODUCTIVE,
+    )
+    print(f"adaptive concurrency: start={GOVERNOR.limit} floor={GOVERNOR.floor} "
+          f"ceiling={GOVERNOR.ceiling} backoff={GOVERNOR.base_cooldown//60}min"
+          f"->{GOVERNOR.cooldown_max//3600}h watchdog=<{GOVERNOR.min_productive}/{GOVERNOR.window}")
+
     realized = compute_realized_hours()
     print(f"currently realized: {realized:.2f}h, target: {args.hours:.2f}h")
     if realized >= args.hours and args.limit is None:
@@ -533,7 +743,18 @@ def main() -> None:
                 f"[batch {iteration}] {len(batch)} segments (~{batch_raw_h:.2f}h raw, success-rate estimate "
                 f"{success_rate:.1%}) — realized so far {realized:.2f}h / {args.hours:.2f}h target"
             )
-            process_batch(batch, detector, args.limit)
+            try:
+                process_batch(batch, detector, args.limit)
+            except YouTubeBlockedError as exc:  # pragma: no cover - governor handles these now
+                # Stop the whole run immediately. Everything this batch already
+                # wrote stays; what matters is that we do NOT keep selecting
+                # fresh batches and burning their ids into the attempted-manifest
+                # while YouTube refuses every request.
+                print(f"\n*** ABORTING: {exc}")
+                print(f"*** progress kept: {compute_realized_hours():.2f}h realized "
+                      f"of {args.hours:.2f}h target")
+                print("*** rerun later — completed work is skipped via the manifest.")
+                break
 
             new_realized = compute_realized_hours()
             batch_realized_h = new_realized - realized

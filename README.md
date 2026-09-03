@@ -136,6 +136,44 @@ Swap `dataset`/`process_dataset`/`split_val_test` for their
 in the other datasets, and use a `_combined`/`_all_combined` train/evaluate
 script to train on more than one dataset at once.
 
+## Input video naming
+
+Camera footage fed to the model is expected to follow this filename convention:
+
+```
+B5-F1-CAM01_high_11-08-2026_12-30-00_to_11-08-2026_12-40-00.mp4
+```
+
+Read left to right, the parts are:
+
+| Part | Example | Meaning |
+|---|---|---|
+| Building | `B5` | building number, `B` + digit |
+| Floor | `F1` | floor number, `F` + digit |
+| Camera | `CAM01` | camera number on that floor, zero-padded |
+| Rule | `high` | the recording rule / quality profile |
+| Start | `11-08-2026_12-30-00` | clip start, `DD-MM-YYYY_HH-MM-SS` |
+| Separator | `to` | literal, separates start from end |
+| End | `11-08-2026_12-40-00` | clip end, same format |
+| Extension | `.mp4` | container |
+
+So the full shape is:
+
+```
+<Building>-<Floor>-<Camera>_<rule>_<start>_to_<end>.mp4
+   B5    -  F1   - CAM01  _ high _ DD-MM-YYYY_HH-MM-SS _to_ DD-MM-YYYY_HH-MM-SS .mp4
+```
+
+Notes:
+
+- The building/floor/camera prefix (`B5-F1-CAM01`) is hyphen-separated; every
+  other field is separated by an underscore.
+- Dates are `DD-MM-YYYY`, not ISO — `11-08-2026` is 11 August 2026.
+- Times use hyphens rather than colons (`12-30-00`, not `12:30:00`), since
+  colons are not safe in filenames on every filesystem.
+- The date fields themselves contain hyphens, so parse the name by splitting on
+  `_` first and then on `_to_`; do not split the whole name on `-`.
+
 ## Results
 
 Windowed model, trained from scratch on UniTalk-ASD + AVA + WASD + Columbia +

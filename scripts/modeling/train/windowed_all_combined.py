@@ -70,6 +70,7 @@ from config import (
     ALL_WINDOWED_TRAIN_LOG_FILENAME,
     ALL_WINDOWED_TRAIN_METRICS_FILENAME,
     ALL_WINDOWED_TRAINING_REPORT_FILENAME,
+    APPLY_POS_WEIGHT,
     BALANCED_BATCHES,
     CHECKPOINTS_DIR,
     EARLY_STOPPING_PATIENCE,
@@ -226,10 +227,12 @@ def main() -> None:
 
     train_labels = np.array(train_loader.dataset.labels)
     pos_weight_value = compute_pos_weight(train_labels)
-    pos_weight = torch.tensor(pos_weight_value, device=device)
+    # config.APPLY_POS_WEIGHT — logged either way so the measured ratio is
+    # always visible, even on a run that chooses not to apply it.
+    pos_weight = torch.tensor(pos_weight_value, device=device) if APPLY_POS_WEIGHT else None
     logger.info(
         f"pos_weight (combined train split NOT_SPEAKING:SPEAKING_AUDIBLE ratio, window labels): "
-        f"{pos_weight_value:.4f}"
+        f"{pos_weight_value:.4f}  (apply_pos_weight={APPLY_POS_WEIGHT})"
     )
 
     model = WindowedSpeakingDetectorRNN().to(device)

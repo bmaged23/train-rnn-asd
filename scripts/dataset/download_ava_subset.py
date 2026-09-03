@@ -64,6 +64,7 @@ from config import (
     AVA_ANNOTATIONS_URL_TRAIN,
     AVA_ANNOTATIONS_URL_VAL,
     AVA_FILE_NAMES_URL,
+    AVA_FFMPEG_TIMEOUT_SECONDS,
     AVA_LABEL_ID_MAP,
     AVA_RAW_CLIPS_VIDEOS_DIR,
     AVA_RAW_CSV_DIR,
@@ -162,7 +163,15 @@ def extract_frames(video_url: str, min_ts: float, max_ts: float, out_dir: Path) 
         "-r", str(DATASET_FPS), "-q:v", "2",
         str(out_dir / "f_%08d.jpg"),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=AVA_FFMPEG_TIMEOUT_SECONDS
+        )
+    except subprocess.TimeoutExpired:
+        # Treat a timeout exactly like any other ffmpeg failure — the caller
+        # already counts a False return as a skipped video. Without this,
+        # subprocess.run() raises and one slow video kills the entire run.
+        return False
     return result.returncode == 0
 
 

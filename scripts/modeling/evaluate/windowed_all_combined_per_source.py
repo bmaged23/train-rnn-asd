@@ -11,10 +11,12 @@ construction — see [[project-asd-avspeech-integration]]'s person_id/entity_id
 collision bug and fix for why that invariant matters), so a person_id ->
 source_label mapping built once up front is unambiguous.
 
-Prints one compute_metrics()/format_report() block per source, plus the
-combined block (same numbers windowed_all_combined.py itself reports, as a
-cross-check). Writes nothing to disk — purely a diagnostic, not a tracked
-evaluation/ output.
+Writes to its own config.ALL_WINDOWED_PER_SOURCE_EVALUATION_DIR folder —
+reset (deleted and recreated) at the start of every run, same convention as
+scripts/modeling/evaluate/windowed_all_combined.py's own evaluation dir, so
+stale results from a previous checkpoint never linger:
+    evaluation_windowed_all_combined_per_source/{source}_metrics.json  (one per source, plus "combined")
+    evaluation_windowed_all_combined_per_source/eval.log
 
 Usage:
     python scripts/modeling/evaluate/windowed_all_combined_per_source.py [--checkpoint best|last]
@@ -22,6 +24,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -39,7 +43,9 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 from config import (
     ALL_WINDOWED_BEST_CHECKPOINT_FILENAME,
     ALL_WINDOWED_LAST_CHECKPOINT_FILENAME,
+    ALL_WINDOWED_PER_SOURCE_EVALUATION_DIR,
     CHECKPOINTS_DIR,
+    EVAL_LOG_FILENAME,
 )
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent / "src"))
@@ -54,6 +60,9 @@ from windowed_dataset import (
 )
 from windowed_model import WindowedSpeakingDetectorRNN
 from metrics import compute_metrics, format_report
+from train_utils import reset_dir
+
+logger = logging.getLogger("evaluate_windowed_all_combined_per_source")
 
 SPLIT = "test"
 _CHECKPOINT_CHOICES = {
@@ -61,6 +70,20 @@ _CHECKPOINT_CHOICES = {
     "last": ALL_WINDOWED_LAST_CHECKPOINT_FILENAME,
 }
 _EXTRA_SOURCES = [ava_source, wasd_source, columbia_source, avspeech_source, speakingfaces_source]
+_SOURCE_ORDER = ["unitalk", "ava", "wasd", "columbia", "avspeech", "speakingfaces", "combined"]
+
+
+def setup_logging(log_path: Path) -> None:
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+    file_handler = logging.FileHandler(log_path, mode="w")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
 
 
 def build_person_id_to_source_map() -> dict[str, str]:
@@ -119,15 +142,21 @@ def collect_predictions_with_source(
 
 
 def main(checkpoint: str = "best") -> None:
+    # Every run starts from a clean slate — deletes and recreates this
+    # script's own evaluation folder (see src/train_utils.py), same
+    # convention as scripts/modeling/evaluate/windowed_all_combined.py.
+    reset_dir(ALL_WINDOWED_PER_SOURCE_EVALUATION_DIR)
+    setup_logging(ALL_WINDOWED_PER_SOURCE_EVALUATION_DIR / EVAL_LOG_FILENAME)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"device: {device}")
-    print("building person_id -> source map (metadata-only, no windowing)...")
+    logger.info(f"device: {device}")
+    logger.info("building person_id -> source map (metadata-only, no windowing)...")
     person_id_to_source = build_person_id_to_source_map()
 
     checkpoint_path = CHECKPOINTS_DIR / _CHECKPOINT_CHOICES[checkpoint]
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"{checkpoint_path} not found — run scripts/modeling/train/windowed_all_combined.py first")
-    print(f"checkpoint: {checkpoint_path} (split={SPLIT})")
+    logger.info(f"checkpoint: {checkpoint_path} (split={SPLIT})")
 
     model = WindowedSpeakingDetectorRNN().to(device)
     model.load_state_dict(torch.load(checkpoint_path, map_location=device))
@@ -139,14 +168,17 @@ def main(checkpoint: str = "best") -> None:
     )
     by_source = collect_predictions_with_source(model, loader, device, person_id_to_source)
 
-    source_order = ["unitalk", "ava", "wasd", "columbia", "avspeech", "speakingfaces", "combined"]
-    for source in source_order:
+    for source in _SOURCE_ORDER:
         if source not in by_source:
             continue
         y_true, y_pred, y_prob = by_source[source]
         metrics = compute_metrics(y_true, y_pred, y_prob)
-        print(f"\n{'=' * 60}\n{source}\n{'=' * 60}")
-        print(format_report(metrics))
+        logger.info(f"\n{'=' * 60}\n{source}\n{'=' * 60}\n" + format_report(metrics))
+
+        metrics_path = ALL_WINDOWED_PER_SOURCE_EVALUATION_DIR / f"{source}_metrics.json"
+        with open(metrics_path, "w") as f:
+            json.dump({k: v for k, v in metrics.items() if not k.startswith("_")}, f, indent=2)
+    logger.info(f"wrote per-source metrics to {ALL_WINDOWED_PER_SOURCE_EVALUATION_DIR}")
 
 
 if __name__ == "__main__":

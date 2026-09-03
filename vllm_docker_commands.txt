@@ -1,0 +1,208 @@
+vLLM server — command reference
+===============================
+Captured 2026-08-27 from the live container. Unrelated to this repo's training
+code; kept here just as an ops note.
+
+
+WHAT IS RUNNING
+---------------
+Container name : naughty_greider   (auto-generated — started with a bare
+                                    `docker run`, there is no compose file)
+Image          : vllm/vllm-openai:gemma4
+Model          : google/gemma-4-31B-it   (tensor-parallel across 2x H200)
+Endpoint       : http://localhost:7834/v1     (host 7834 -> container 8000)
+Model cache    : /mnt/storage/hf_cache -> /root/.cache/huggingface  (host bind
+                 mount, ~59G — a restart re-reads this, nothing re-downloads)
+Restart policy : always
+AutoRemove     : false
+Started        : 2026-08-04
+
+Because AutoRemove=false the container definition survives a stop, so starting
+it again replays the identical config, name, ports, mounts and args. You almost
+never need command 9 — commands 1 and 2 are the normal path.
+
+
+===============================================================================
+ 1. STOP THE SERVER
+===============================================================================
+Graceful SIGTERM with a ~10s grace period.
+
+    docker stop naughty_greider
+
+
+===============================================================================
+ 2. START THE SERVER
+===============================================================================
+Comes back exactly as it was — same config, name, ports, mounts and args.
+
+    docker start naughty_greider
+
+
+===============================================================================
+ 3. WAIT UNTIL READY
+===============================================================================
+Run this after every start. `docker start` returns immediately, but a 31B model
+over TP=2 takes minutes to load even from warm cache — the server is not
+accepting requests until this prints READY.
+
+    until curl -sf http://localhost:7834/v1/models >/dev/null; do sleep 5; done; echo READY
+
+
+===============================================================================
+ 4. FULL RESTART IN ONE PASTE  (1 + 2 + 3 combined)
+===============================================================================
+    docker stop naughty_greider && \
+    docker start naughty_greider && \
+    until curl -sf http://localhost:7834/v1/models >/dev/null; do sleep 5; done && echo READY
+
+
+===============================================================================
+ 5. WATCH IT LOAD  (live logs)
+===============================================================================
+Alternative to command 3 if you would rather see the loading progress.
+Ctrl-C stops watching; it does NOT stop the server.
+
+    docker logs -f naughty_greider
+
+
+===============================================================================
+ 6. CHECK STATUS  (is it up?)
+===============================================================================
+    docker ps --filter name=naughty_greider
+
+
+===============================================================================
+ 7. HEALTH CHECK  (is it actually serving?)
+===============================================================================
+Three levels, cheapest first. Use the one that matches what you need to know.
+
+--- 7a. IS IT UP?  (one line, prints the HTTP code) ---------------------------
+Prints "HTTP 200" within milliseconds when healthy. "HTTP 000" means nothing is
+listening (container down, or still loading).
+
+    curl -s -o /dev/null -w "HTTP %{http_code} in %{time_total}s\n" \
+      http://localhost:7834/v1/models
+
+--- 7b. WHAT IS IT SERVING? ---------------------------------------------------
+Returns the served model JSON. Empty/refused means still loading or down.
+
+    curl -s http://localhost:7834/v1/models | head
+
+Expected (verified 2026-09-03): id=google/gemma-4-31B-it, max_model_len=262144.
+
+--- 7c. DOES IT ACTUALLY ANSWER?  (real inference - the test that matters) -----
+A 200 from /v1/models only proves the HTTP server is listening. This proves the
+MODEL is loaded and generating. Costs a couple of tokens.
+
+    curl -s -m 90 http://localhost:7834/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -d '{"model":"google/gemma-4-31B-it",
+           "messages":[{"role":"user","content":"What is the capital of France and Spain?"}],
+           "max_tokens":60,"temperature":0}'
+
+Expected reply (verified 2026-09-03):
+
+    The capital of France is **Paris**, and the capital of Spain is **Madrid**.
+
+with finish_reason "stop" and usage 22 prompt + 18 completion = 40 tokens.
+
+Why a real question rather than "reply OK": this checks the model actually KNOWS
+something, not merely that it echoes. A model that loaded with corrupt weights,
+or a wrong checkpoint silently served under the same name, will still happily
+echo "OK" - but it will not reliably name both capitals. temperature=0 keeps the
+answer deterministic, so the wording above should reproduce exactly.
+
+To read just the answer instead of the whole JSON, append:
+
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'])" 
+
+A 404 "model not found" here usually means the --model string in the request does
+not match what section 7b reports - it must match EXACTLY, including the
+"google/" prefix.
+
+
+===============================================================================
+ 8. CHECK GPU USAGE  (before stopping, or to debug a failed start)
+===============================================================================
+    nvidia-smi --query-compute-apps=pid,used_memory --format=csv
+
+Snapshot at capture time — the GPUs are SHARED with the attendance pipeline
+(Attendance_full_pipeline_api.py), which sits on GPU 0:
+
+    GPU 0 : vLLM 60,640 MiB | attendance 23,232 MiB | free ~59.8 GB
+    GPU 1 : vLLM 60,420 MiB | attendance    520 MiB | free ~82.7 GB
+
+vLLM reserves 0.40 * 143,771 MiB ~= 57.5 GB per GPU on startup. There is
+comfortable headroom, but do NOT launch anything large onto GPU 0 while vLLM
+is down or the restart may fail to allocate.
+
+
+===============================================================================
+ 9. RECREATE THE CONTAINER FROM SCRATCH  (fallback — only if it was removed)
+===============================================================================
+Only needed if the container no longer exists (`docker ps -a` does not list it).
+While naughty_greider exists, use commands 1 and 2 instead.
+
+Verified complete against a full `docker inspect` of the live container, diffed
+against the image defaults. Note the --name, which the original was missing.
+
+    docker run -d \
+      --name vllm-gemma4 \
+      --restart always \
+      --gpus all \
+      --ipc host \
+      --security-opt label=disable \
+      -p 7834:8000 \
+      -v /mnt/storage/hf_cache:/root/.cache/huggingface \
+      vllm/vllm-openai:gemma4 \
+      --model google/gemma-4-31B-it \
+      --tensor-parallel-size 2 \
+      --max-model-len -1 \
+      --gpu-memory-utilization 0.40 \
+      --trust-remote-code \
+      --enable-auto-tool-choice \
+      --tool-call-parser gemma4
+
+Everything ABOVE the image name is a Docker flag; everything BELOW it is an
+argument to vLLM, appended to the image's own ["vllm","serve"] entrypoint.
+Do not reorder across that line.
+
+This names the container vllm-gemma4, NOT naughty_greider — so substitute that
+name into commands 1, 2, 5, 6 and 10 afterwards.
+
+
+===============================================================================
+ 10. INSPECT FULL CONFIG  (source of truth for everything above)
+===============================================================================
+    docker inspect naughty_greider
+
+
+-------------------------------------------------------------------------------
+NOTES ON COMMAND 9
+-------------------------------------------------------------------------------
+Confirmed NOT needed (all image defaults, nothing set at run time):
+  - no -e / --env at all: every env var is inherited from the image, and none
+    of the image's defaults are overridden. In particular there is no HF_TOKEN,
+    so the model resolves from the mounted cache (or is public).
+  - no -w: WorkingDir /vllm-workspace is the image default.
+  - no --entrypoint: the image's own ["vllm","serve"] is used, which is why the
+    args are appended bare after the image name.
+  - no --shm-size: 64MB, the Docker default (but see the warning below).
+  - no --label, no --memory / --cpus / --ulimit / --pids-limit, no --cap-add
+    or --cap-drop, no --device, no --dns / --add-host, no --log-opt,
+    not --privileged, no tmpfs, no extra volumes. Bridge network, not --net host.
+  - only ONE mount, the hf_cache bind above.
+
+WARNING — --ipc host is load-bearing, do not drop it
+    shm is only 64MB (Docker's default). Tensor parallelism needs far more
+    shared memory than that, and this survives solely because --ipc host
+    bypasses the container shm limit entirely. If you ever remove --ipc host,
+    you MUST add --shm-size=8g (or more) or TP=2 will fail at startup.
+
+Also note: log driver is json-file with NO rotation configured, so the
+container log grows unbounded. If it ever needs capping, add
+    --log-opt max-size=100m --log-opt max-file=3
+
+Finally: `restart: always` does not fight a manual stop — an explicitly stopped
+container stays stopped until command 2. It does mean a Docker daemon restart
+or a host reboot will bring it back up on its own.

@@ -16,6 +16,7 @@ data/raw_avspeech/
 data/processed_avspeech/
 data/raw_speakingfaces/
 data/processed_speakingfaces/
+data/windowed_cache/
 avspeech_extraction.log
 speakingfaces_extraction.log
 checkpoints/*.pt
@@ -38,6 +39,78 @@ evaluation_windowed_combined/*.png
 evaluation_windowed_all_combined/*.json
 evaluation_windowed_all_combined/*.log
 evaluation_windowed_all_combined/*.png
+evaluation_windowed_all_combined_per_source/*.json
+evaluation_windowed_all_combined_per_source/*.log
 models/*.task
 
 .env
+
+# ============================================================
+# NTA_Vision monorepo — added 2026-09-03
+# Excludes secrets, input/output/data, and model weights.
+# ============================================================
+
+# --- secrets (NEVER commit) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*credentials*
+*secret*
+*token*
+
+# --- python caches / envs ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.ipynb_checkpoints/
+
+# --- model weights (GitHub hard-rejects >100MB; some here are 1.4GB) ---
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.task
+*.h5
+*.weights
+*.safetensors
+*.tflite
+
+# --- generic input / output / data ---
+input/
+inputs/
+Input/
+Inputs/
+output/
+outputs/
+Output/
+Outputs/
+data/
+Data/
+
+# --- this project's own IO ---
+data/
+checkpoints/
+logs/
+landmarks/
+evaluation*/
+models/
+*.log
+
+# --- SAFETY NET: never ignore source files, whatever the rules above say ---
+!*.py
+!*.sh
+!*.ipynb
+!*.md
+!*.txt
+!*.yaml
+!*.yml
+!*.json
+!*.toml
+!*.cfg
+!*.sql
+!Dockerfile
+!Makefile

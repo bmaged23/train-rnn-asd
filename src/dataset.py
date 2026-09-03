@@ -48,24 +48,70 @@ from config import (
     COMBINED_LANDMARKS_FILENAME,
     DATA_PROCESSED_DIR,
     MIN_DETECTED_FRAMES_RATIO,
+    MOUTH_HEIGHT_PAIRS,
     MOUTH_LANDMARK_INDICES,
+    MOUTH_WIDTH_PAIRS,
     NUM_FACE_LANDMARKS,
     SPEAKINGFACES_PROCESSED_DATASET_DIR,
     TEST_SPLIT_FILENAME,
     USE_MAR,
+    USE_MOUTH_GEOMETRY_FEATURES,
     USE_MOUTH_LANDMARKS_ONLY,
     VAL_SPLIT_FILENAME,
     WASD_PROCESSED_DATASET_DIR,
 )
 
-# config.USE_MOUTH_LANDMARKS_ONLY/USE_MAR are a single source of truth applied
-# identically to train/val/test — not per-call overrides, since the model's
-# input_size is derived from NUM_INPUT_FEATURES below and a checkpoint
-# trained with one combination won't load into a model built with another.
+# config.USE_MOUTH_LANDMARKS_ONLY/USE_MAR/USE_MOUTH_GEOMETRY_FEATURES are a
+# single source of truth applied identically to train/val/test — not
+# per-call overrides, since the model's input_size is derived from
+# NUM_INPUT_FEATURES below and a checkpoint trained with one combination
+# won't load into a model built with another.
 _LANDMARK_INDICES = MOUTH_LANDMARK_INDICES if USE_MOUTH_LANDMARKS_ONLY else range(NUM_FACE_LANDMARKS)
 LANDMARK_FEATURE_COLUMNS = [f"face_landmark_{i}_{axis}" for i in _LANDMARK_INDICES for axis in "xyz"]
+# What's actually read from the CSV — geometry features below are NOT CSV
+# columns, they're computed from these landmark columns after loading (see
+# compute_mouth_geometry_features()), so they're deliberately excluded here.
 FEATURE_COLUMNS = LANDMARK_FEATURE_COLUMNS + (["mar"] if USE_MAR else [])
-NUM_INPUT_FEATURES = len(FEATURE_COLUMNS)
+
+# config.MOUTH_HEIGHT_PAIRS/MOUTH_WIDTH_PAIRS use real MediaPipe landmark
+# indices, not positions within _LANDMARK_INDICES (which differs depending
+# on USE_MOUTH_LANDMARKS_ONLY) — this mapping makes compute_mouth_geometry_features()
+# work correctly regardless of which landmark set is active.
+_INDEX_TO_POSITION = {idx: pos for pos, idx in enumerate(_LANDMARK_INDICES)}
+_MOUTH_GEOMETRY_PAIR_POSITIONS = [
+    (_INDEX_TO_POSITION[a], _INDEX_TO_POSITION[b]) for a, b in MOUTH_HEIGHT_PAIRS + MOUTH_WIDTH_PAIRS
+]
+NUM_MOUTH_GEOMETRY_FEATURES = len(_MOUTH_GEOMETRY_PAIR_POSITIONS) if USE_MOUTH_GEOMETRY_FEATURES else 0
+
+# Final per-frame feature vector width — what the model actually sees,
+# including the derived (not literal CSV) geometry columns appended after
+# MAR. This, not len(FEATURE_COLUMNS), is what src/model.py/src/windowed_model.py
+# size their input layer from.
+NUM_INPUT_FEATURES = len(FEATURE_COLUMNS) + NUM_MOUTH_GEOMETRY_FEATURES
+
+
+def compute_mouth_geometry_features(points: np.ndarray) -> np.ndarray:
+    """points: (..., num_landmarks, 3) array in whatever coordinate space the
+    caller has on hand (real already-normalized landmarks, or post-
+    augmentation rotated/scaled ones — see config.USE_MOUTH_GEOMETRY_FEATURES'
+    comment for why no separate ratio-based normalization is needed either
+    way). Returns (..., NUM_MOUTH_GEOMETRY_FEATURES) — the 18
+    MOUTH_HEIGHT_PAIRS distances then the 18 MOUTH_WIDTH_PAIRS distances, in
+    that fixed order, computed as plain Euclidean distance per pair
+    (np.linalg.norm of the coordinate difference). Broadcasts over any
+    number of leading dims (a single frame's points, or a whole track's
+    (frames, num_landmarks, 3)).
+
+    Unclipped (2026-08-04, reverted an earlier clip-based fix) — a real
+    training run with clipping at MOUTH_GEOMETRY_MAX_DISTANCE=2.0 (and MAR
+    clipped at 1.0) DID stabilize the training curve (no repeat of an
+    earlier sharp mid-run loss spike) but made final per-source accuracy
+    net WORSE across the board (Columbia dropped 0.575->0.507), not
+    better — explicit user request to remove both clips after comparing
+    real results, not just a reversion of unverified code.
+    """
+    dists = [np.linalg.norm(points[..., a, :] - points[..., b, :], axis=-1) for a, b in _MOUTH_GEOMETRY_PAIR_POSITIONS]
+    return np.stack(dists, axis=-1)
 
 _METADATA_COLUMNS = ["person_id", "image_name", "detected", "target_index"]
 
@@ -244,6 +290,17 @@ class LandmarkSequenceDataset(Dataset):
 
             feats = group[FEATURE_COLUMNS].to_numpy(dtype=np.float32, copy=True)
             feats[~detected] = 0.0  # zero-fill undetected frames' feature values
+            landmark_cols = len(LANDMARK_FEATURE_COLUMNS)
+
+            # config.USE_MOUTH_GEOMETRY_FEATURES — computed AFTER the
+            # zero-fill above (not before), so an undetected frame's
+            # landmarks being all-zero correctly makes its geometry
+            # distances zero too, rather than computing real-looking
+            # distances from data that's about to be discarded.
+            if USE_MOUTH_GEOMETRY_FEATURES:
+                points = feats[:, :landmark_cols].reshape(-1, len(_LANDMARK_INDICES), 3)
+                geometry = compute_mouth_geometry_features(points).astype(np.float32)
+                feats = np.concatenate([feats, geometry], axis=1)
 
             self.person_ids.append(person_id)
             self.features.append(feats)
