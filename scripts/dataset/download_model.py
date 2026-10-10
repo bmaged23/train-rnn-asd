@@ -1,12 +1,9 @@
 """Downloads the MediaPipe FaceLandmarker model into models/face_landmarker.task.
 
-The project used to depend on a symlink at /data/bola/models/ pointing into
-another user's directory (/data/Mona/attention/) — this fetches an
-independent copy from Google's official MediaPipe model bucket instead, so
-the project doesn't depend on anything outside itself. extract_landmarks.py
-also calls download_if_missing() automatically the first time
-PersonLandmarkExtractor needs the model, so this script is mainly for
-explicit/manual re-fetching.
+This fetches an independent copy from Google's official MediaPipe model
+bucket. extract_landmarks.py also calls download_if_missing() automatically
+the first time PersonLandmarkExtractor needs the model, so this script is
+mainly for explicit/manual re-fetching.
 
 Usage:
     python scripts/dataset/download_model.py

@@ -24,12 +24,9 @@ src/image_dataset.py data loading) — only the model/optimizer/config
 constants differ (VLM_* instead of IMAGE_*), plus a config.VLM_FINETUNE_MODE
 branch for the optimizer's learning rate.
 
-Own checkpoint/log filenames (config.VLM_ALL_WINDOWED_*) — but
-CHECKPOINTS_DIR/LOGS_DIR themselves are shared across every training script
-in this project (see src/train_utils.py), so running this wipes whatever
-checkpoints/logs the last training run left there, same as every other
-train/*.py script. Evaluate the previous run first if you need to keep its
-results.
+Own checkpoint/log filenames (config.VLM_ALL_WINDOWED_*). Training
+creates the shared output directories when needed and only overwrites this
+approach's named files, preserving other experiments' results.
 
 This script deliberately does NOT touch the held-out "test" split — that's
 scripts/modeling/evaluate/vlm_all_combined_per_source.py's job.
@@ -112,7 +109,6 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent / "src"
 from dataset import ava_source, avspeech_source, columbia_source, speakingfaces_source, wasd_source
 from image_dataset import build_image_cache, get_image_windowed_dataloader
 from metrics import build_training_report, plot_accuracy_curve, plot_loss_curve
-from train_utils import reset_dir
 from vlm_model import VLMASDClassifier
 
 if not torch.cuda.is_available():
@@ -298,12 +294,9 @@ def main() -> None:
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms(True)
 
-    # Every run starts from a clean slate — deletes and recreates both
-    # folders, clearing any prior run's checkpoints/logs (see
-    # src/train_utils.py; CHECKPOINTS_DIR/LOGS_DIR are shared across every
-    # training script, not just this one).
-    reset_dir(CHECKPOINTS_DIR)
-    reset_dir(LOGS_DIR)
+    # Create shared output folders without deleting other experiments' results.
+    CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
     setup_logging(LOGS_DIR / VLM_ALL_WINDOWED_TRAIN_LOG_FILENAME)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

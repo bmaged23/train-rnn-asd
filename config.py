@@ -7,19 +7,22 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent
 load_dotenv(PROJECT_ROOT / ".env")
 
+# Keep large datasets and caches outside the source checkout when desired.
+DATA_ROOT = Path(os.getenv("DATA_ROOT") or PROJECT_ROOT / "data").expanduser()
+
 # --- HuggingFace dataset ---
 HF_DATASET_REPO_ID = "plnguyen2908/UniTalk-ASD"
 HF_REPO_TYPE = "dataset"
 SPLITS = ("train", "val")
 
 # --- Raw data (untouched download) ---
-DATA_RAW_DIR = PROJECT_ROOT / "data" / "raw"
+DATA_RAW_DIR = DATA_ROOT / "raw"
 RAW_CSV_DIR = DATA_RAW_DIR / "csv"
 RAW_CLIPS_VIDEOS_DIR = DATA_RAW_DIR / "clips_videos"
 RAW_CLIPS_AUDIOS_DIR = DATA_RAW_DIR / "clips_audios"
 
 # --- Processed data ---
-DATA_PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+DATA_PROCESSED_DIR = DATA_ROOT / "processed"
 SEQUENCES_DIR = DATA_PROCESSED_DIR / "sequences"
 FAILED_EXTRACTIONS_FILE = DATA_PROCESSED_DIR / "failed_extractions.txt"
 
@@ -41,12 +44,9 @@ CSV_COLUMNS = [
 ]
 
 # --- MediaPipe Face Landmarker (Tasks API) ---
-# Lives inside the project (models/face_landmarker.task) so the project is
-# self-contained — this used to be a symlink at /data/bola/models/ pointing
-# into another user's directory (/data/Mona/attention/); scripts/dataset/download_model.py
-# fetches this from the official MediaPipe model bucket if it's ever missing,
-# and PersonLandmarkExtractor (extract_landmarks.py) auto-downloads it on
-# first use rather than failing.
+# Stored locally at models/face_landmarker.task. The downloader fetches it
+# from Google's official MediaPipe model bucket when it is missing, and the
+# extractor also downloads it automatically on first use.
 MODELS_DIR = PROJECT_ROOT / "models"
 FACE_LANDMARKER_MODEL_PATH = MODELS_DIR / "face_landmarker.task"
 FACE_LANDMARKER_MODEL_URL = (
@@ -416,7 +416,7 @@ AUGMENT_COPIES_PER_WINDOW = 1        # materialized mode only — how many augme
 # sits there unused. Nothing deletes old cache files automatically — safe
 # to clear data/windowed_cache/ by hand if disk space matters more than
 # keeping old variants around.
-WINDOWED_CACHE_DIR = PROJECT_ROOT / "data" / "windowed_cache"
+WINDOWED_CACHE_DIR = DATA_ROOT / "windowed_cache"
 
 # --- scripts/splits/split_val_test.py ---
 # Splits data/processed/val/combined_landmarks.csv (by whole person_id track,
@@ -678,10 +678,10 @@ WINDOWED_EVALUATION_DIR = PROJECT_ROOT / "evaluation_windowed"
 # removable fine-tuning set rather than silently growing the primary training
 # data — mirrors this project's existing pattern of keeping parallel
 # pipelines (e.g. windowed vs. per-frame) in separate files/dirs.
-AVA_DATA_RAW_DIR = PROJECT_ROOT / "data" / "raw_ava"
+AVA_DATA_RAW_DIR = DATA_ROOT / "raw_ava"
 AVA_RAW_CSV_DIR = AVA_DATA_RAW_DIR / "csv"
 AVA_RAW_CLIPS_VIDEOS_DIR = AVA_DATA_RAW_DIR / "clips_videos"  # no clips_audios/ — audio is never used
-AVA_PROCESSED_DATASET_DIR = PROJECT_ROOT / "data" / "processed_ava"
+AVA_PROCESSED_DATASET_DIR = DATA_ROOT / "processed_ava"
 
 AVA_ANNOTATIONS_URL_TRAIN = "https://s3.amazonaws.com/ava-dataset/annotations/ava_activespeaker_train_v1.0.tar.bz2"
 AVA_ANNOTATIONS_URL_VAL = "https://s3.amazonaws.com/ava-dataset/annotations/ava_activespeaker_val_v1.0.tar.bz2"
@@ -775,10 +775,10 @@ AVA_LABEL_ID_MAP = {
 # copied in unmodified. Kept fully separate from data/raw/, data/raw_ava/, and
 # their processed/ counterparts (own raw_wasd/ + processed_wasd/), mirroring
 # the AVA integration's separate-until-explicitly-combined pattern.
-WASD_DATA_RAW_DIR = PROJECT_ROOT / "data" / "raw_wasd"
+WASD_DATA_RAW_DIR = DATA_ROOT / "raw_wasd"
 WASD_RAW_CSV_DIR = WASD_DATA_RAW_DIR / "csv"
 WASD_RAW_CLIPS_VIDEOS_DIR = WASD_DATA_RAW_DIR / "clips_videos"  # no clips_audios/ — audio is never used
-WASD_PROCESSED_DATASET_DIR = PROJECT_ROOT / "data" / "processed_wasd"
+WASD_PROCESSED_DATASET_DIR = DATA_ROOT / "processed_wasd"
 
 # Used only as scratch space while fetching/cropping source video — deleted
 # once cropping finishes, since only the cropped face JPGs + CSVs are the
@@ -870,10 +870,10 @@ NUM_WASD_DOWNLOAD_WORKERS = 8
 # controls how many go to "val" (which then further divides into
 # val_split/test_split via scripts/splits/split_columbia_val_test.py,
 # exactly like AVA/WASD); the rest go to "train".
-COLUMBIA_DATA_RAW_DIR = PROJECT_ROOT / "data" / "raw_columbia"
+COLUMBIA_DATA_RAW_DIR = DATA_ROOT / "raw_columbia"
 COLUMBIA_RAW_CSV_DIR = COLUMBIA_DATA_RAW_DIR / "csv"
 COLUMBIA_RAW_CLIPS_VIDEOS_DIR = COLUMBIA_DATA_RAW_DIR / "clips_videos"  # no clips_audios/ — audio is never used
-COLUMBIA_PROCESSED_DATASET_DIR = PROJECT_ROOT / "data" / "processed_columbia"
+COLUMBIA_PROCESSED_DATASET_DIR = DATA_ROOT / "processed_columbia"
 
 COLUMBIA_VIDEO_YOUTUBE_ID = "6GzxbrO0DHM"  # "Wikileaks and Academia - a Panel Discussion at Columbia SIPA"
 # col_labels.tar.gz — Drive file id verified working 2026-07-25, sourced
@@ -937,10 +937,10 @@ NUM_COLUMBIA_CROP_WORKERS = len(COLUMBIA_SPEAKER_NAMES)
 AVSPEECH_TRAIN_CSV_URL = (
     "https://huggingface.co/datasets/bbrothers/avspeech-metadata/resolve/main/avspeech_train.csv"
 )
-AVSPEECH_DATA_RAW_DIR = PROJECT_ROOT / "data" / "raw_avspeech"
+AVSPEECH_DATA_RAW_DIR = DATA_ROOT / "raw_avspeech"
 AVSPEECH_RAW_CSV_DIR = AVSPEECH_DATA_RAW_DIR / "csv"
 AVSPEECH_RAW_CLIPS_VIDEOS_DIR = AVSPEECH_DATA_RAW_DIR / "clips_videos"  # no clips_audios/ — audio is never used
-AVSPEECH_PROCESSED_DATASET_DIR = PROJECT_ROOT / "data" / "processed_avspeech"
+AVSPEECH_PROCESSED_DATASET_DIR = DATA_ROOT / "processed_avspeech"
 # Scratch space for fetched subclips before cropping, deleted once cropping
 # finishes — same rationale as WASD_STAGING_DIR.
 AVSPEECH_STAGING_DIR = AVSPEECH_DATA_RAW_DIR / "_staging"
@@ -1115,7 +1115,7 @@ SPEAKINGFACES_FRAMES_PER_POSITION = 900  # verified continuous 1..900, no gaps
 # already-extracted discrete PNG frames, not a video file.
 SPEAKINGFACES_NATIVE_FPS = 28
 SPEAKINGFACES_ALIGNED_RGB_MODALITY = "3"  # filename's last field for the visual-thermal-aligned rgb stream
-SPEAKINGFACES_DATA_RAW_DIR = PROJECT_ROOT / "data" / "raw_speakingfaces"
+SPEAKINGFACES_DATA_RAW_DIR = DATA_ROOT / "raw_speakingfaces"
 SPEAKINGFACES_RAW_CSV_DIR = SPEAKINGFACES_DATA_RAW_DIR / "csv"
 SPEAKINGFACES_RAW_CLIPS_VIDEOS_DIR = SPEAKINGFACES_DATA_RAW_DIR / "clips_videos"
 
@@ -1164,7 +1164,7 @@ SPEAKINGFACES_FACE_CROP_MARGIN = 0.3
 SPEAKINGFACES_CROP_GPU_ID = 0
 NUM_SPEAKINGFACES_CROP_WORKERS = 1
 
-SPEAKINGFACES_PROCESSED_DATASET_DIR = PROJECT_ROOT / "data" / "processed_speakingfaces"
+SPEAKINGFACES_PROCESSED_DATASET_DIR = DATA_ROOT / "processed_speakingfaces"
 # Scratch space for each subject's downloaded zip, deleted right after that
 # subject's frames are extracted — same rationale as AVSPEECH_STAGING_DIR,
 # avoids keeping the ~1.2TB of raw zips AND the extracted frames on disk at
@@ -1245,7 +1245,8 @@ COMBINED_EVALUATION_DIR = PROJECT_ROOT / "evaluation_combined"
 #     (added 2026-07-31) ---
 # Third candidate architecture, alongside the per-frame and windowed
 # landmark-RNN models above: a CNN+LSTM consuming face-crop IMAGES directly
-# (src/image_dataset.py), no MediaPipe landmark extraction step at all. NOT
+# (src/image_dataset.py); landmarks are not model inputs. The shared
+# processed CSV is still required for track, frame, and label metadata. NOT
 # proposed as a fix for the overhead/multi-directional-camera deployment
 # gap discussed alongside AUGMENT_LANDMARKS above (architecture-independent
 # data problem) — the motivation is capturing visual cues landmarks
@@ -1255,17 +1256,14 @@ COMBINED_EVALUATION_DIR = PROJECT_ROOT / "evaluation_combined"
 # TRAIN/val/test separation via LOGICAL_SPLITS — only the per-frame
 # representation changes (an image tensor instead of a landmark vector).
 #
-# Reuses each source's own RAW_CLIPS_VIDEOS_DIR (the face-crop JPGs the
-# landmark pipeline already reads from) directly — EXCEPT SpeakingFaces,
-# which uses SPEAKINGFACES_RAW_CLIPS_VIDEOS_CROPPED_DIR instead of
-# SPEAKINGFACES_RAW_CLIPS_VIDEOS_DIR (its raw frames are uncropped full
-# scenes, unlike every other source — see that constant's comment). Labels/
-# track structure are read from the SAME combined_landmarks.csv files the
-# landmark pipeline already produces (just the person_id/video_id/
-# image_name/detected/target_index columns, not the landmark float
-# columns — much cheaper to load) rather than a separate label file, so
-# both pipelines stay in sync automatically if a dataset is ever
-# re-extracted.
+# Reads each source's own RAW_CLIPS_VIDEOS_DIR (the face-crop JPGs) directly
+# — EXCEPT SpeakingFaces, which uses SPEAKINGFACES_RAW_CLIPS_VIDEOS_CROPPED_DIR
+# because its raw frames are uncropped full scenes. It does not consume
+# landmarks as model features, but still needs the combined CSV produced by
+# the shared feature pipeline for track structure, frame names, and labels.
+# The same combined_landmarks.csv files provide only person/video/frame/
+# label metadata; landmark float columns are not loaded by this model.
+# This keeps both pipelines synchronized when a dataset is re-extracted.
 IMAGE_SIZE = 96  # square resize target — kept modest given the x-window_size compute multiplier (224x224 ImageNet-standard would be much heavier)
 # ImageNet mean/std (standard torchvision convention) since IMAGE_CNN_BACKBONE
 # below is ImageNet-pretrained — using its own expected input statistics.
@@ -1339,7 +1337,7 @@ IMAGE_MAX_MASKED_FRAME_RATIO = 0.5
 # reuse across different settings); an unchanged split is skipped entirely,
 # not rebuilt. Gitignored, scratch-only (measured real size: 81GB for the
 # full 6-source/3-split set at IMAGE_SIZE=96).
-IMAGE_RESIZED_CACHE_DIR = PROJECT_ROOT / "data" / "image_resized_cache"
+IMAGE_RESIZED_CACHE_DIR = DATA_ROOT / "image_resized_cache"
 
 # Worker count for ImageWindowedDataset.__init__'s construction-time
 # cache-existence check (one Path.exists() syscall per real frame) —
@@ -1622,20 +1620,10 @@ IMAGE_ALL_WINDOWED_PER_SOURCE_EVALUATION_DIR = PROJECT_ROOT / "evaluation_image_
 # LoRA/full/partial-unfreeze training), and reads off the logit difference
 # between a "Yes" and "No" answer token at the next-token position — see
 # VLM_PROMPT_TEXT/VLM_YES_TOKEN_STRING/VLM_NO_TOKEN_STRING below.
-# Deliberately OUTSIDE PROJECT_ROOT/data/, unlike this project's other
-# caches (IMAGE_RESIZED_CACHE_DIR, WINDOWED_CACHE_DIR) — those live under
-# data/ because the whole data/ folder is routinely moved out to
-# /data/bola/{data,models} so the user can download a much-smaller project
-# folder (see project memory), and a ~9GB model cache doesn't belong caught
-# up in that shuffle. Root cause this exists at all: transformers/
-# huggingface_hub default to ~/.cache/huggingface, which sits on THIS BOX'S
-# root filesystem (98GB, found nearly full — 869MB free — 2026-08-23) rather
-# than the /data mount (3.5TB, 1.9TB free) the rest of this project already
-# uses; every VLM entry point must set HF_HOME to this before importing
-# transformers/huggingface_hub (both read it once, at import time), or a
-# real run will try to re-download the ~9GB model straight onto the nearly-
-# full root disk.
-VLM_HF_CACHE_DIR = "/data/bola/hf_cache"
+# Hugging Face reads HF_HOME at import time. The training/evaluation entry
+# points set it from this value before importing Transformers; users can set
+# HF_HOME in .env or use the standard ~/.cache/huggingface location.
+VLM_HF_CACHE_DIR = os.getenv("HF_HOME") or str(Path.home() / ".cache" / "huggingface")
 
 # SWITCHED TO "Qwen/Qwen3-VL-4B-Instruct" then BACK to "Qwen/Qwen3.5-4B",
 # both 2026-08-23 (both explicit user request):
@@ -1970,13 +1958,8 @@ VLM_VAL_TEST_SAMPLE_SIZE_PER_SOURCE = (
     VLM_TRAIN_SAMPLE_SIZE_PER_SOURCE // 5 if VLM_TRAIN_SAMPLE_SIZE_PER_SOURCE is not None else None
 )
 
-# Own checkpoint/log/eval filenames — separate from every other architecture
-# in this project, same "never overwrite a different architecture's result"
-# convention as IMAGE_ALL_WINDOWED_* above (though see
-# [[missing-checkpoint-incident]]: CHECKPOINTS_DIR itself is still shared and
-# reset_dir()-wiped at the start of every training script regardless of
-# filename — distinct filenames don't protect a prior run's checkpoint from
-# being deleted by a new one).
+# Own checkpoint/log/eval filenames, separate from every other architecture.
+# Training creates shared output directories without clearing other runs.
 VLM_ALL_WINDOWED_BEST_CHECKPOINT_FILENAME = "vlm_all_windowed_best_model.pt"  # gitignored (checkpoints/*.pt)
 VLM_ALL_WINDOWED_LAST_CHECKPOINT_FILENAME = "vlm_all_windowed_last_model.pt"  # gitignored (checkpoints/*.pt)
 VLM_ALL_WINDOWED_TRAIN_METRICS_FILENAME = "vlm_all_windowed_train_metrics.csv"    # gitignored (logs/*.csv)

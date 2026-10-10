@@ -77,7 +77,6 @@ from dataset import NUM_INPUT_FEATURES
 from windowed_dataset import ava_source, get_windowed_dataloader
 from windowed_model import WindowedSpeakingDetectorRNN
 from metrics import build_training_report, plot_accuracy_curve, plot_loss_curve
-from train_utils import reset_dir
 
 if not torch.cuda.is_available():
     torch.set_num_threads(TORCH_CPU_THREADS)  # see config.py — avoids CPU thread-contention on this 64-core box
@@ -168,12 +167,9 @@ def main() -> None:
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms(True)
 
-    # Every run starts from a clean slate — deletes and recreates both
-    # folders, clearing any prior run's checkpoints/logs (see
-    # src/train_utils.py; CHECKPOINTS_DIR/LOGS_DIR are shared across every
-    # training script, not just this one).
-    reset_dir(CHECKPOINTS_DIR)
-    reset_dir(LOGS_DIR)
+    # Create shared output folders without deleting other experiments' results.
+    CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
     setup_logging(LOGS_DIR / COMBINED_WINDOWED_TRAIN_LOG_FILENAME)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

@@ -39,7 +39,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import cv2
-import numpy as np
 import torch
 from batch_face import RetinaFace
 from tqdm import tqdm
