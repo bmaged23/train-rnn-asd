@@ -42,6 +42,12 @@ The notebook also displays representative predictions from this same earlier com
 
 ![Representative combined-model predictions with landmark overlays: true positive, false negative, true negative, and false positive examples](docs/assets/combined-model-prediction-examples.jpg)
 
+The project also has a **per-frame landmark BiLSTM** experiment. Unlike the gallery above, which assigns one speaking label to a two-second window, this model predicts each detected frame independently. Its notebook reports the following held-out test confusion matrix and curves:
+
+![Per-frame landmark BiLSTM test confusion matrix, ROC curve, and precision-recall curve](docs/assets/per-frame-test-evaluation.png)
+
+The image CNN+LSTM and VLM have evaluation scripts, but neither has a completed full-dataset training run with saved test predictions in this repository. Their TP/FN/TN/FP image galleries can be added after those models have produced real held-out outputs; the current visual predictions therefore show the landmark approach only.
+
 ## Pipeline overview
 
 The dataset scripts download and prepare each source separately. They write a common per-frame CSV schema so model variants can share track IDs, timestamps, and labels.
