@@ -4,7 +4,7 @@
 
 This project studies **active speaker detection from visual information**: given a face track, predict whether the visible person is speaking. The model inputs contain no audio. The repository includes three model families, a multi-source data pipeline, training and held-out evaluation scripts, and exploratory notebooks.
 
-The recommended starting point is the landmark BiLSTM. It has the strongest documented result in this repository while using a compact input representation. The image model and vision-language model explore richer visual representations at substantially higher storage and compute cost.
+The project explores three complementary ways to recognize speaking from face video: compact MediaPipe landmarks with an LSTM, raw face images with a CNN+LSTM, and a pretrained vision-language model (VLM) adapted to answer the task. The landmark BiLSTM is the practical baseline with the strongest documented result. The VLM is the ambitious candidate with the broadest visual representation and potentially the highest performance ceiling, at a much higher GPU and training-time cost.
 
 ## The three approaches
 
@@ -12,25 +12,35 @@ The recommended starting point is the landmark BiLSTM. It has the strongest docu
 |---|---|---|---|
 | **Landmark BiLSTM** | MediaPipe mouth landmarks and mouth-aspect features; BiLSTM predicts a label per frame or per two-second window. | Lowest data and compute cost of the three. Recommended baseline. | The six-source windowed run records **92.90% accuracy and 93.22% F1** on 22,030 held-out windows. |
 | **Image CNN+LSTM** | Face-crop images encoded by MobileNetV3-Small and a partially fine-tuned AdaFace backbone, then classified over a sequence by an LSTM. | High image-I/O and GPU cost. The six-source resized-frame cache was measured at about **81 GB**. | Implemented as a training/evaluation pipeline; this repository does not include a comparable published test score. |
-| **Vision-language model (VLM)** | Qwen3.5-4B receives 50 sampled face frames and predicts a Yes/No speaking answer; the configured training mode uses LoRA. | Highest model-memory and training cost; downloads multi-gigabyte model weights and processes many image tokens per example. | Experimental scaffold only: it has **not yet been trained or evaluated** on this dataset. It may have the highest accuracy ceiling, but a win has not been demonstrated. |
+| **Vision-language model (VLM)** | A pretrained Qwen3.5-4B model receives the ordered face frames from a two-second window and is prompted to answer Yes/No. LoRA adapts the model to the task. | Highest GPU-memory, image-token, and wall-clock cost; requires downloading multi-gigabyte pretrained weights. | The model path has been exercised with a small forward/backward smoke test, but no full-dataset training or held-out evaluation has been completed. |
 
-The VLM is the most expressive approach and is a reasonable research hypothesis for the best eventual accuracy. It is not yet a proven winner. For a practical balance of demonstrated performance, training time, and GPU needs, start with the windowed landmark BiLSTM.
+#### Why the VLM is a strong candidate
 
-### What the input looks like
+The VLM is the project's most ambitious approach. Instead of reducing each frame to a small set of geometric measurements, it starts from a large pretrained visual model and sees the face crops themselves in temporal order. That gives it access to richer appearance and mouth-motion cues, and its pretrained visual representations may help it learn useful patterns from task data more effectively than a model trained from scratch. LoRA keeps fine-tuning focused on a small set of adapter weights while retaining the pretrained model's broader visual knowledge.
 
-The landmark pipeline detects a face mesh and selects the mouth points used by the sequence model. Green marks show the full face mesh; cyan marks show the mouth landmarks.
+That makes the VLM a plausible candidate for the best eventual accuracy, but the repository does not yet contain a full VLM training run or test result. Its potential is a research hypothesis, not a measured win. The current setup processes 50 frames per two-second window and needs substantially more GPU memory and training time than the landmark BiLSTM. The image CNN+LSTM sits between these approaches in input richness and resource demand. For a practical result today, the six-source windowed landmark BiLSTM remains the strongest demonstrated option.
 
-![MediaPipe landmark examples for speaking frames](docs/assets/face-landmarks-speaking.png)
+### From raw frames to model features
 
-![MediaPipe landmark examples for non-speaking frames](docs/assets/face-landmarks-not-speaking.png)
+The preprocessing pipeline loads labeled face crops, runs MediaPipe Face Landmarker, records whether a face was detected, and extracts landmark and mouth-aspect features. The chart below comes from the processed-data notebook: MediaPipe detected a face in 51.1% of UniTalk-ASD training frames and 59.5% of validation frames. Undetected frames are tracked explicitly; the sequence pipeline masks them and applies a configurable minimum-detection threshold when building tracks.
 
-The notebook gallery contains both successful detections and failure cases. The model’s training pipeline masks undetected frames and filters tracks using a configurable detection threshold.
+![MediaPipe face-detection rate in processed UniTalk-ASD train and validation splits](docs/assets/processed-face-detection-rate.png)
+
+The notebook then re-runs detection on sample crops so the actual coordinates can be drawn over the images. Green points show the full face mesh and cyan points highlight the mouth landmarks used by the model. The samples below show labeled speaking and non-speaking frames.
+
+![MediaPipe full-face and mouth landmarks on speaking frames](docs/assets/face-landmarks-speaking.png)
+
+![MediaPipe full-face and mouth landmarks on non-speaking frames](docs/assets/face-landmarks-not-speaking.png)
 
 ### Example held-out evaluation
 
 This confusion matrix and pair of curves are from the notebook’s earlier **UniTalk-ASD + AVA windowed experiment** (4,738 test windows). They illustrate the evaluation outputs; they are not the six-source score shown above.
 
 ![Example test-set confusion matrix, ROC, and precision-recall curves](docs/assets/two-source-windowed-evaluation.png)
+
+The notebook also displays representative predictions from this same earlier combined-model experiment. Each pair shows the original face crop and the crop annotated with MediaPipe landmarks; the category heading identifies true positives (TP), false negatives (FN), true negatives (TN), and false positives (FP). The examples make both correct decisions and failure cases visible, alongside the aggregate metrics above.
+
+![Representative combined-model predictions with landmark overlays: true positive, false negative, true negative, and false positive examples](docs/assets/combined-model-prediction-examples.jpg)
 
 ## Pipeline overview
 
@@ -163,12 +173,14 @@ Budget about 81 GB for the complete six-source resized-frame cache, in addition 
 
 ### Approach 3: Vision-language model
 
-The VLM uses the same prepared six-source data and face crops. On its first run, Hugging Face downloads the configured Qwen3.5-4B model into the HF_HOME cache. The current configuration uses LoRA, samples 10,000 training windows per source, and is set to one epoch. Treat this as an experimental starting configuration; it is not a completed benchmark.
+The VLM uses the same prepared six-source data and face crops as the image model. On its first run, Hugging Face downloads the configured Qwen3.5-4B pretrained model into the HF_HOME cache. Each two-second window supplies 50 ordered frames alongside the prompt “Look at this sequence of video frames showing one person's face. Is this person speaking in these frames? Answer with only Yes or No.” The model scores the Yes/No answer, and the configured LoRA mode fine-tunes adapter weights rather than the entire 4B-parameter backbone.
+
+The current smoke-run configuration samples 10,000 training windows per source (60,000 total across six sources) and uses one epoch. This makes the first full run smaller than training on every available window, but still computationally demanding because every example contains 50 images. Increase the sample and epoch settings only after measuring the actual GPU memory and throughput. This is a training configuration, not a completed benchmark.
 
     python scripts/modeling/train/vlm_all_combined.py
     python scripts/modeling/evaluate/vlm_all_combined_per_source.py --checkpoint best
 
-A large GPU is strongly recommended. The model processes 50 face frames for each window, and VLM memory and throughput depend on GPU type, available memory, model placement, and concurrent workloads. The repository's training script uses gradient accumulation and writes diagnostics to its log. No accuracy claim should be made until this pipeline has completed a real training run and held-out evaluation.
+A large GPU is strongly recommended. The 4B-parameter model processes 50 face frames per window, so memory use and training time are much higher than for the landmark LSTM and typically higher than the image CNN+LSTM. Actual throughput depends on GPU memory, model placement, and the image-processing stack. The training script uses gradient accumulation and writes diagnostics to its log. After training, run the held-out per-source evaluation command above; only that evaluation can establish whether the VLM improves on the other two approaches.
 
 ## Recorded results
 
