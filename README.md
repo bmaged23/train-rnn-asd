@@ -4,21 +4,21 @@
 
 This project studies **active speaker detection from visual information**: given a face track, predict whether the visible person is speaking. The model inputs contain no audio. The repository includes three model families, a multi-source data pipeline, training and held-out evaluation scripts, and exploratory notebooks.
 
-The project explores three complementary ways to recognize speaking from face video: compact MediaPipe landmarks with an LSTM, raw face images with a CNN+LSTM, and a pretrained vision-language model (VLM) adapted to answer the task. The landmark BiLSTM is the practical baseline with the strongest documented result. The VLM is the ambitious candidate with the broadest visual representation and potentially the highest performance ceiling, at a much higher GPU and training-time cost.
+The project explores three complementary ways to recognize speaking from face video: compact MediaPipe landmarks with an LSTM, raw face images with a CNN+LSTM, and a pretrained vision-language model (VLM) adapted to answer the task. In the experiments reported by the project author, the landmark BiLSTM gave the best practical balance of accuracy and compute, the image model was less accurate, and the VLM was promising but required more GPU memory and training time. The results below distinguish metrics recorded in the repository from preliminary run results reported by the author.
 
 ## The three approaches
 
 | Approach | Input and model | Resource profile | Current evidence |
 |---|---|---|---|
 | **Landmark BiLSTM** | MediaPipe mouth landmarks and mouth-aspect features; BiLSTM predicts a label per frame or per two-second window. | Lowest data and compute cost of the three. Recommended baseline. | The six-source windowed run records **92.90% accuracy and 93.22% F1** on 22,030 held-out windows. |
-| **Image CNN+LSTM** | Face-crop images encoded by MobileNetV3-Small and a partially fine-tuned AdaFace backbone, then classified over a sequence by an LSTM. | High image-I/O and GPU cost. The six-source resized-frame cache was measured at about **81 GB**. | Implemented as a training/evaluation pipeline; this repository does not include a comparable published test score. |
-| **Vision-language model (VLM)** | A pretrained Qwen3.5-4B model receives the ordered face frames from a two-second window and is prompted to answer Yes/No. LoRA adapts the model to the task. | Highest GPU-memory, image-token, and wall-clock cost; requires downloading multi-gigabyte pretrained weights. | The model path has been exercised with a small forward/backward smoke test, but no full-dataset training or held-out evaluation has been completed. |
+| **Image CNN+LSTM** | Face-crop images encoded by MobileNetV3-Small and a partially fine-tuned AdaFace backbone, then classified over a sequence by an LSTM. | High image-I/O and GPU cost. The six-source resized-frame cache was measured at about **81 GB**. | Preliminary author-reported accuracy: **88% train / 86% test**. Run artifacts are not included in this repository. |
+| **Vision-language model (VLM)** | A pretrained Qwen3.5-4B model receives the ordered face frames from a two-second window and is prompted to answer Yes/No. LoRA adapts the model to the task. | Highest GPU-memory, image-token, and wall-clock cost; requires downloading multi-gigabyte pretrained weights. | Preliminary author-reported accuracy: **90% train / 91% test** on a smaller run (about 25,000 training samples and 1,520 test samples). Run artifacts are not included here. |
 
 #### Why the VLM is a strong candidate
 
 The VLM is the project's most ambitious approach. Instead of reducing each frame to a small set of geometric measurements, it starts from a large pretrained visual model and sees the face crops themselves in temporal order. That gives it access to richer appearance and mouth-motion cues, and its pretrained visual representations may help it learn useful patterns from task data more effectively than a model trained from scratch. LoRA keeps fine-tuning focused on a small set of adapter weights while retaining the pretrained model's broader visual knowledge.
 
-That makes the VLM a plausible candidate for the best eventual accuracy, but the repository does not yet contain a full VLM training run or test result. Its potential is a research hypothesis, not a measured win. The current setup processes 50 frames per two-second window and needs substantially more GPU memory and training time than the landmark BiLSTM. The image CNN+LSTM sits between these approaches in input richness and resource demand. For a practical result today, the six-source windowed landmark BiLSTM remains the strongest demonstrated option.
+The preliminary 91% test accuracy makes the VLM a serious candidate, especially given the smaller run reported for it. It still needs a longer, carefully controlled run on the same data and split before we can say whether it beats the landmark BiLSTM. It processes 50 frames per two-second window and needs substantially more GPU memory and training time. For the results currently available, the landmark BiLSTM remains the best practical choice; the VLM has the greatest potential to improve with further compute and evaluation.
 
 ### From raw frames to model features
 
@@ -181,16 +181,16 @@ Budget about 81 GB for the complete six-source resized-frame cache, in addition 
 
 The VLM uses the same prepared six-source data and face crops as the image model. On its first run, Hugging Face downloads the configured Qwen3.5-4B pretrained model into the HF_HOME cache. Each two-second window supplies 50 ordered frames alongside the prompt “Look at this sequence of video frames showing one person's face. Is this person speaking in these frames? Answer with only Yes or No.” The model scores the Yes/No answer, and the configured LoRA mode fine-tunes adapter weights rather than the entire 4B-parameter backbone.
 
-The current smoke-run configuration samples 10,000 training windows per source (60,000 total across six sources) and uses one epoch. This makes the first full run smaller than training on every available window, but still computationally demanding because every example contains 50 images. Increase the sample and epoch settings only after measuring the actual GPU memory and throughput. This is a training configuration, not a completed benchmark.
+The checked-in smoke-run configuration samples 10,000 training windows per source (60,000 total across six sources) and uses one epoch. The preliminary author-reported run used about 25,000 training samples and 1,520 test samples; its exact sampling unit and configuration are not preserved in this checkout. Both setups are computationally demanding because every example contains 50 images. Increase the sample and epoch settings only after measuring GPU memory and throughput.
 
     python scripts/modeling/train/vlm_all_combined.py
     python scripts/modeling/evaluate/vlm_all_combined_per_source.py --checkpoint best
 
-A large GPU is strongly recommended. The 4B-parameter model processes 50 face frames per window, so memory use and training time are much higher than for the landmark LSTM and typically higher than the image CNN+LSTM. Actual throughput depends on GPU memory, model placement, and the image-processing stack. The training script uses gradient accumulation and writes diagnostics to its log. After training, run the held-out per-source evaluation command above; only that evaluation can establish whether the VLM improves on the other two approaches.
+A large GPU is strongly recommended. The 4B-parameter model processes 50 face frames per window, so memory use and training time are much higher than for the landmark LSTM and typically higher than the image CNN+LSTM. Actual throughput depends on GPU memory, model placement, and the image-processing stack. The training script uses gradient accumulation and writes diagnostics to its log. A controlled comparison should use the same source mixture, held-out split, and evaluation metric for all three approaches.
 
-## Recorded results
+## Results and comparison
 
-The repository records these different experiments. Their prediction units and dataset mixtures differ, so compare them only with that context:
+The following results are recorded in the repository. Their prediction units and dataset mixtures differ, so compare them only with that context:
 
 | Experiment | Test set | Accuracy | F1 | ROC-AUC | PR-AUC |
 |---|---:|---:|---:|---:|---:|
@@ -198,7 +198,29 @@ The repository records these different experiments. Their prediction units and d
 | UniTalk-ASD + AVA windowed BiLSTM, notebook run | 4,738 windows | 84.87% | 69.32% | 89.91% | 78.78% |
 | UniTalk-ASD per-frame BiLSTM, notebook run | 160,668 detected frames | 84.34% | 60.87% | 88.45% | 72.04% |
 
-The notebook runs above are included as analysis examples and are not an apples-to-apples comparison with the six-source result. There is no recorded image-model or VLM score in this repository yet.
+The notebook runs above are included as analysis examples and are not an apples-to-apples comparison with the six-source result.
+
+The project author also reports the following preliminary train/test **accuracy** results from additional runs:
+
+| Approach | Train accuracy | Test accuracy | Run details |
+|---|---:|---:|---|
+| Landmark BiLSTM | 93% | 91.2% | Reported as a full-data run; exact sample count and split details were not retained. |
+| Image CNN+LSTM | 88% | 86% | Sample count and split details were not retained. |
+| Qwen3.5-4B VLM with LoRA | 90% | 91% | About 25,000 training samples and 1,520 test samples; the exact sampling unit and run configuration were not retained. |
+
+These are author-reported preliminary results. The corresponding checkpoints, metric logs, exact data counts, and run-specific hyperparameters are not included in this checkout, so the figures cannot be independently reproduced from the repository as published. Treat them as indicative rather than a controlled head-to-head benchmark. The six-source windowed landmark result above remains the strongest fully documented result in the repository.
+
+### Training hyperparameters
+
+The table below lists the **current checked-in configuration**, which may differ from the historical runs summarized above. Epochs are maximum budgets; early stopping can end training sooner. The exact epochs reached and learning rates used in those historical runs were not preserved with their metrics.
+
+| Approach | Learning rate in current config | Epoch budget in current config | Early stopping |
+|---|---:|---:|---|
+| Landmark BiLSTM (frame and windowed) | `1e-3` | Up to 200 | Patience 20 epochs |
+| Image CNN+LSTM | `1e-3` | Up to 200 | Patience 3 epochs |
+| Qwen3.5-4B VLM (LoRA) | `1e-4` | 1 epoch | Patience 2 (the one-epoch cap normally ends first) |
+
+The VLM's current one-epoch default is paired with a configured sample of 10,000 training windows per source. This differs from the author's recalled run of about 25,000 training samples; do not assume the checked-in defaults reproduce that historical score without the original settings and logs.
 
 ## Repository layout
 
