@@ -1,14 +1,12 @@
 """Shared start-of-run cleanup for scripts/modeling/train/*.py and
 scripts/modeling/evaluate/*.py.
 
-Every run starts from a clean slate: reset_dir(dir_path) deletes `dir_path`
-(and everything in it) if present, then recreates it empty. Used at the start
-of both train scripts (config.CHECKPOINTS_DIR, config.LOGS_DIR — shared
-across every training script, so this clears every prior run's
-checkpoints/logs, not just the current script's own) and evaluate scripts
-(each script's own evaluation_*/ directory) runs, so a rerun never mixes
-with — or silently appends to, in the case of the log file — a previous
-run's output.
+The legacy reset_dir helper is used by evaluation entry points to replace their
+own named report directory. Training entry points create the shared checkpoints/
+and logs/ folders without deleting other model families; their named files may
+still be overwritten by a rerun. Never pass a shared data/checkpoint directory
+to reset_dir. Release evaluations should use isolated output paths and preserve
+previous failed runs rather than calling this destructive helper.
 """
 from __future__ import annotations
 

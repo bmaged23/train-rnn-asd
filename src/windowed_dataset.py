@@ -22,8 +22,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import pickle
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -41,6 +43,8 @@ from config import (
     BALANCED_SOURCE_BATCHES,
     BATCH_SIZE,
     MIN_DETECTED_FRAMES_RATIO,
+    MOUTH_HEIGHT_PAIRS,
+    MOUTH_WIDTH_PAIRS,
     USE_MAR,
     USE_MOUTH_GEOMETRY_FEATURES,
     USE_MOUTH_LANDMARKS_ONLY,
@@ -60,7 +64,9 @@ from config import (
 # `from windowed_dataset import ava_source` call sites
 # (scripts/modeling/train/windowed_combined.py, scripts/modeling/evaluate/windowed_combined.py)
 # keep working unchanged.
-from dataset import (
+from src.dataset import (
+    _SPLIT_CSV_PATH,
+    FEATURE_COLUMNS,
     LOGICAL_SPLITS,
     NUM_INPUT_FEATURES,
     NUM_MOUTH_GEOMETRY_FEATURES,
@@ -80,6 +86,20 @@ _NUM_LANDMARKS = (NUM_INPUT_FEATURES - (1 if USE_MAR else 0) - NUM_MOUTH_GEOMETR
 # MAR if present, then geometry — see src/dataset.py's NUM_INPUT_FEATURES
 # comment for this fixed column order).
 _GEOMETRY_START = _NUM_LANDMARKS * 3 + (1 if USE_MAR else 0)
+
+
+def _source_fingerprints(sources: list[tuple[Path, str]]) -> list[dict]:
+    """Content identity, including source order; file size/mtime alone is insufficient."""
+    result = []
+    for path, label in sources:
+        before = path.stat()
+        with path.open('rb') as stream:
+            digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+        after = path.stat()
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise RuntimeError(f'Dataset changed while hashing: {path}')
+        result.append({'label': label, 'sha256': digest, 'bytes': after.st_size})
+    return result
 
 
 def _random_rotation_matrix(max_degrees: float) -> np.ndarray:
@@ -140,6 +160,7 @@ def _cache_key(
     pad_min_length_ratio: float,
     extra_source_labels: list[str],
     materialize: bool,
+    source_fingerprints: list[dict],
 ) -> str:
     """Short, stable hash over every setting that actually affects the built
     arrays — a cache file only ever matches if ALL of these are identical to
@@ -156,6 +177,10 @@ def _cache_key(
     (materialized mode) needs its own separate, larger cache.
     """
     payload = {
+        "cache_version": 2,
+        "source_fingerprints": source_fingerprints,
+        "feature_columns": FEATURE_COLUMNS,
+        "geometry_pairs": MOUTH_HEIGHT_PAIRS + MOUTH_WIDTH_PAIRS if USE_MOUTH_GEOMETRY_FEATURES else None,
         "split": split,
         "window_size": window_size,
         "window_stride": window_stride,
@@ -241,6 +266,7 @@ class WindowedLandmarkSequenceDataset(Dataset):
             split, window_size, window_stride, min_detected_ratio,
             pad_short_tracks, pad_min_length_ratio,
             [label for _, label in extra_sources], materialize,
+            _source_fingerprints([(_SPLIT_CSV_PATH[split], 'unitalk'), *extra_sources]) if split == 'train' else [],
         )
         cache_path = _cache_path(cache_key)
         use_cache = split == "train"
@@ -349,18 +375,25 @@ class WindowedLandmarkSequenceDataset(Dataset):
 
         if use_cache:
             WINDOWED_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            with open(cache_path, "wb") as f:
-                pickle.dump(
-                    {
-                        "features": self.features,
-                        "lengths": self.lengths,
-                        "labels": self.labels,
-                        "person_ids": self.person_ids,
-                        "source_labels": self.source_labels,
-                    },
-                    f,
-                    protocol=pickle.HIGHEST_PROTOCOL,
-                )
+            temporary_path = None
+            try:
+                with tempfile.NamedTemporaryFile(dir=WINDOWED_CACHE_DIR, suffix='.tmp', delete=False) as f:
+                    temporary_path = Path(f.name)
+                    pickle.dump(
+                        {
+                            "features": self.features,
+                            "lengths": self.lengths,
+                            "labels": self.labels,
+                            "person_ids": self.person_ids,
+                            "source_labels": self.source_labels,
+                        }, f, protocol=pickle.HIGHEST_PROTOCOL,
+                    )
+                    f.flush()
+                    os.fsync(f.fileno())
+                temporary_path.replace(cache_path)
+            finally:
+                if temporary_path is not None:
+                    temporary_path.unlink(missing_ok=True)
             print(f"[{cache_key}] wrote cache -> {cache_path}")
 
     def __len__(self) -> int:

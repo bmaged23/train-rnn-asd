@@ -232,7 +232,7 @@ def _load_frame_table(split: str, csv_path: Path | None = None) -> pd.DataFrame:
     df = pd.read_csv(csv_path, usecols=_METADATA_COLUMNS + FEATURE_COLUMNS, engine="pyarrow")
     df["frame_ts"] = df["image_name"].map(_frame_timestamp)
     # stable sort so within-person_id rows land in chronological order
-    df.sort_values(["person_id", "frame_ts"], inplace=True, kind="mergesort")
+    df = df.sort_values(["person_id", "frame_ts"], kind="mergesort")
     return df
 
 

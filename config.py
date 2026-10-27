@@ -10,6 +10,12 @@ load_dotenv(PROJECT_ROOT / ".env")
 # Keep large datasets and caches outside the source checkout when desired.
 DATA_ROOT = Path(os.getenv("DATA_ROOT") or PROJECT_ROOT / "data").expanduser()
 
+# Historical runs used a large shared server. Bound each worker pool on a
+# laptop unless the operator deliberately restores higher server concurrency.
+WORKER_LIMIT = int(os.getenv("ASD_WORKER_LIMIT", str(min(4, max(1, (os.cpu_count() or 1) - 1)))))
+if WORKER_LIMIT < 1:
+    raise ValueError('ASD_WORKER_LIMIT must be a positive integer')
+
 # --- HuggingFace dataset ---
 HF_DATASET_REPO_ID = "plnguyen2908/UniTalk-ASD"
 HF_REPO_TYPE = "dataset"
@@ -127,7 +133,7 @@ CSV_FLOAT_DECIMALS = 6
 # GPU's limited free VRAM under load from other users' jobs. If MEDIAPIPE_DELEGATE
 # is switched back to "CPU", raise this back toward the core count (112 on this
 # server) instead.
-NUM_EXTRACTION_WORKERS = 64
+NUM_EXTRACTION_WORKERS = min(64, WORKER_LIMIT)
 
 # Optional: folder to run scripts/features/extract_landmarks.py against directly (train/val
 # person folder or an arbitrary eval folder of images). Falls back to a sample
@@ -727,7 +733,7 @@ AVA_SUBSET_VAL_FRACTION = 0.2
 # CAVEAT: the sweep used 30s slices, while real AVA videos are ~15-min
 # segments. Short slices are seek/latency-dominated, which is exactly where
 # concurrency helps most, so the real-world gain may be smaller than 2.9x.
-NUM_AVA_DOWNLOAD_WORKERS = 24
+NUM_AVA_DOWNLOAD_WORKERS = min(24, WORKER_LIMIT)
 
 # Per-video ffmpeg wall-clock ceiling in scripts/dataset/download_ava_subset.py's
 # extract_frames(). Was a hardcoded 1800 (30 min); a REAL run on 2026-08-27 died
@@ -835,7 +841,7 @@ WASD_SUBSET_VIDEOS = None
 # Kept lower than NUM_AVA_DOWNLOAD_WORKERS: this is bound by YouTube-side
 # rate limiting/throttling risk on concurrent connections, not local CPU/
 # disk, so more workers doesn't reliably mean more throughput.
-NUM_WASD_DOWNLOAD_WORKERS = 8
+NUM_WASD_DOWNLOAD_WORKERS = min(8, WORKER_LIMIT)
 
 # --- scripts/dataset/download_columbia_subset.py (added 2026-07-25) ---
 # Columbia Active Speaker Detection dataset (Chakravarty & Tuytelaars, ACM
@@ -909,7 +915,7 @@ COLUMBIA_LABEL_SCALE_FACTOR = 2
 # downloaded video file — safe (independent capture handles) and matches
 # the natural per-speaker parallelism unit, no reason to cap below the
 # fixed speaker count.
-NUM_COLUMBIA_CROP_WORKERS = len(COLUMBIA_SPEAKER_NAMES)
+NUM_COLUMBIA_CROP_WORKERS = min(len(COLUMBIA_SPEAKER_NAMES), WORKER_LIMIT)
 
 # --- scripts/dataset/download_avspeech_subset.py (added 2026-07-26) ---
 # AVSpeech (Google Research, "Looking to Listen at the Cocktail Party") — a
@@ -1041,7 +1047,7 @@ AVSPEECH_HEALTHY_STREAK_TO_SCALE_UP = 150  # good source videos between step-ups
 # FLOOR and CEILING). Set to 4 on 2026-09-01: starting at the 8 ceiling is what
 # triggered the block that cost ~13h, and additive-increase now works, so the
 # governor will climb to 8 on its own if the link demonstrably tolerates it.
-NUM_AVSPEECH_DOWNLOAD_WORKERS = 3
+NUM_AVSPEECH_DOWNLOAD_WORKERS = min(3, WORKER_LIMIT)
 
 # Request pacing passed straight through to yt-dlp. Without these the script
 # has no throttle of any kind — the direct cause of the block above.
@@ -1162,7 +1168,7 @@ SPEAKINGFACES_FACE_CROP_MARGIN = 0.3
 # underlying NVML/driver mismatch is actually fixed (needs the box admin,
 # still unresolved as of [[project-asd-wasd-download]]'s last check).
 SPEAKINGFACES_CROP_GPU_ID = 0
-NUM_SPEAKINGFACES_CROP_WORKERS = 1
+NUM_SPEAKINGFACES_CROP_WORKERS = min(1, WORKER_LIMIT)
 
 SPEAKINGFACES_PROCESSED_DATASET_DIR = DATA_ROOT / "processed_speakingfaces"
 # Scratch space for each subject's downloaded zip, deleted right after that
@@ -1180,7 +1186,7 @@ SPEAKINGFACES_COMPLETED_SUBJECTS_MANIFEST = SPEAKINGFACES_DATA_RAW_DIR / "comple
 # Validation+Test subjects both fold into this project's raw "val" pool,
 # which scripts/splits/split_speakingfaces_val_test.py then re-splits into
 # val_split/test_split the same stratified way as every other source.
-NUM_SPEAKINGFACES_DOWNLOAD_WORKERS = 4  # HF Hub downloads over plain HTTPS, not YouTube — a few concurrent zip fetches is fine
+NUM_SPEAKINGFACES_DOWNLOAD_WORKERS = min(4, WORKER_LIMIT)  # Per-pool cap; server concurrency is opt-in.
 
 # --- scripts/modeling/train/windowed_combined.py / scripts/modeling/evaluate/windowed_combined.py
 #     (added 2026-07-17) ---
@@ -1349,7 +1355,7 @@ IMAGE_RESIZED_CACHE_DIR = DATA_ROOT / "image_resized_cache"
 # not threads. Kept at 32 (not higher) since this box is shared with other
 # users' GPU/CPU workloads — leaves headroom, same reasoning as
 # crop_speakingfaces_faces.py's NUM_SPEAKINGFACES_CROP_WORKERS.
-IMAGE_FRAME_CHECK_WORKERS = 32
+IMAGE_FRAME_CHECK_WORKERS = min(32, WORKER_LIMIT)
 
 # Worker count for src/image_dataset.py's build_image_cache() — decode +
 # pad-to-square + resize + re-encode + write, per real frame (the actual
@@ -1366,7 +1372,7 @@ IMAGE_FRAME_CHECK_WORKERS = 32
 # re-imports image_dataset.py's full dependency chain, including torch/
 # torchvision) outweighing the extra parallelism on this box. 16 chosen as
 # the measured sweet spot, not a guess.
-IMAGE_CACHE_BUILD_WORKERS = 16
+IMAGE_CACHE_BUILD_WORKERS = min(16, WORKER_LIMIT)
 
 # torchvision.models.mobilenet_v3_small, ImageNet-pretrained — chosen for
 # being lightweight (fast per-frame forward pass, since every WINDOW_SIZE
@@ -1474,7 +1480,7 @@ IMAGE_EVAL_BATCH_SIZE = 32
 # growth. 32 chosen as the measured sweet spot — meaningfully faster than
 # 16, still far from whatever count would repeat the 64-worker failure
 # (not bisected further; revisit if this box's other memory pressure changes).
-IMAGE_NUM_DATALOADER_WORKERS = 32
+IMAGE_NUM_DATALOADER_WORKERS = min(32, WORKER_LIMIT)
 
 # val/test are ~50x smaller than train (9,740 vs 495,379 windows for the
 # 6-source combined set) — don't need anywhere near IMAGE_NUM_DATALOADER_WORKERS
@@ -1486,7 +1492,7 @@ IMAGE_NUM_DATALOADER_WORKERS = 32
 # worker processes at once, which pushed this box into swapping (measured
 # 2026-07-31: 0MiB swap free, epoch time got WORSE after adding
 # persistent_workers, not better, until this was split out).
-IMAGE_VAL_NUM_DATALOADER_WORKERS = 8
+IMAGE_VAL_NUM_DATALOADER_WORKERS = min(8, WORKER_LIMIT)
 
 IMAGE_WINDOWED_SEED = 42
 

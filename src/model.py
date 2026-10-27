@@ -22,7 +22,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from config import DROPOUT, HIDDEN_SIZE, NUM_RNN_LAYERS, TORCH_CPU_THREADS
-from dataset import NUM_INPUT_FEATURES
+from src.dataset import NUM_INPUT_FEATURES
 
 if not torch.cuda.is_available():
     torch.set_num_threads(TORCH_CPU_THREADS)  # see config.py — avoids CPU thread-contention on this 64-core box
@@ -62,7 +62,7 @@ class SpeakingDetectorRNN(nn.Module):
 
 
 if __name__ == "__main__":
-    from dataset import LOGICAL_SPLITS, get_dataloader
+    from src.dataset import LOGICAL_SPLITS, get_dataloader
 
     for split in LOGICAL_SPLITS:
         loader = get_dataloader(split)

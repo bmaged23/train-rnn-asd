@@ -26,6 +26,7 @@ import numpy as np
 from sklearn.metrics import (
     average_precision_score,
     confusion_matrix,
+    matthews_corrcoef,
     precision_recall_curve,
     precision_recall_fscore_support,
     roc_auc_score,
@@ -52,15 +53,33 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_prob: np.ndarray) 
     (aside from the "_roc_curve"/"_pr_curve" plotting arrays — strip those
     before json.dump, see scripts/modeling/evaluate/frames.py).
     """
+    y_true, y_pred, y_prob = (np.asarray(values) for values in (y_true, y_pred, y_prob))
+    if any(values.ndim != 1 for values in (y_true, y_pred, y_prob)):
+        raise ValueError('Labels, predictions and probabilities must be one-dimensional')
+    if not len(y_true) or len(y_true) != len(y_pred) or len(y_true) != len(y_prob):
+        raise ValueError('Labels, predictions and probabilities must have equal nonzero length')
+    if not np.isin(y_true, [0, 1]).all() or not np.isin(y_pred, [0, 1]).all():
+        raise ValueError('Labels and predictions must contain only binary 0/1 values')
+    if not np.isfinite(y_prob).all() or ((y_prob < 0) | (y_prob > 1)).any():
+        raise ValueError('Probabilities must be finite and in [0, 1]')
     precision, recall, f1, _support = precision_recall_fscore_support(
         y_true, y_pred, average="binary", zero_division=0
     )
     accuracy = float((y_true == y_pred).mean())
     cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
-    fpr, tpr, _ = roc_curve(y_true, y_prob)
-    roc_auc = roc_auc_score(y_true, y_prob)
-    pr_precision, pr_recall, _ = precision_recall_curve(y_true, y_prob)
-    pr_auc = average_precision_score(y_true, y_prob)
+    tn, fp, fn, tp = (int(value) for value in cm.ravel())
+    both_classes = bool((tn + fp) and (fn + tp))
+    roc_points, roc_auc = None, None
+    if both_classes:
+        fpr, tpr, _ = roc_curve(y_true, y_prob)
+        roc_points = (fpr, tpr)
+        roc_auc = float(roc_auc_score(y_true, y_prob))
+    pr_points, pr_auc = None, None
+    if fn + tp:
+        pr_precision, pr_recall, _ = precision_recall_curve(y_true, y_prob)
+        pr_points = (pr_recall, pr_precision)
+        pr_auc = float(average_precision_score(y_true, y_prob))
+    specificity = tn / (tn + fp) if tn + fp else None
 
     return {
         "n_samples": int(len(y_true)),
@@ -68,24 +87,32 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_prob: np.ndarray) 
         "precision": float(precision),
         "recall": float(recall),
         "f1": float(f1),
-        "roc_auc": float(roc_auc),
-        "pr_auc": float(pr_auc),
+        "roc_auc": roc_auc,
+        "pr_auc": pr_auc,
+        "pr_auc_method": "average_precision",
+        "specificity": specificity,
+        "balanced_accuracy": (float(recall) + specificity) / 2 if both_classes else None,
+        "mcc": float(matthews_corrcoef(y_true, y_pred)) if both_classes else None,
+        "brier_score": float(np.mean((y_prob - y_true) ** 2)),
+        "class_support": [tn + fp, fn + tp],
         "confusion_matrix": cm.tolist(),  # rows=true, cols=pred, order=CLASS_NAMES
         "class_names": CLASS_NAMES,
-        "_roc_curve": (fpr, tpr),
-        "_pr_curve": (pr_recall, pr_precision),
+        "_roc_curve": roc_points,
+        "_pr_curve": pr_points,
     }
 
 
 def format_report(metrics: dict) -> str:
     cm = np.array(metrics["confusion_matrix"])
     class_names = metrics["class_names"]
+    roc_text = f"{metrics['roc_auc']:.4f}" if metrics['roc_auc'] is not None else 'undefined (one true class)'
+    pr_text = f"{metrics['pr_auc']:.4f}" if metrics['pr_auc'] is not None else 'undefined (no positive labels)'
     return "\n".join([
         f"n_samples={metrics['n_samples']}",
         f"accuracy={metrics['accuracy']:.4f}",
         f"precision={metrics['precision']:.4f}  recall={metrics['recall']:.4f}  "
         f"f1={metrics['f1']:.4f}",
-        f"roc_auc={metrics['roc_auc']:.4f}  pr_auc={metrics['pr_auc']:.4f}",
+        f"roc_auc={roc_text}  pr_auc={pr_text}",
         "confusion matrix (rows=true, cols=pred):",
         f"                    pred_{class_names[0]:<16} pred_{class_names[1]}",
         f"  true_{class_names[0]:<14} {cm[0, 0]:>10} {cm[0, 1]:>20}",
@@ -105,7 +132,8 @@ def _style_axes(ax) -> None:
 
 def plot_confusion_matrix(metrics: dict, split: str = "test", ax=None, save_path=None):
     cm = np.array(metrics["confusion_matrix"])
-    cm_pct = cm / cm.sum(axis=1, keepdims=True)  # row-normalized (recall per true class)
+    support = cm.sum(axis=1, keepdims=True)
+    cm_pct = np.divide(cm, support, out=np.zeros_like(cm, dtype=float), where=support != 0)
     class_names = metrics["class_names"]
 
     own_fig = ax is None
@@ -128,8 +156,9 @@ def plot_confusion_matrix(metrics: dict, split: str = "test", ax=None, save_path
     for i in range(2):
         for j in range(2):
             text_color = "#ffffff" if cm_pct[i, j] > 0.5 else "#0b0b0b"
+            percentage = f'{cm_pct[i, j]:.1%}' if support[i, 0] else 'no true samples'
             ax.text(
-                j, i, f"{cm[i, j]:,}\n({cm_pct[i, j]:.1%})",
+                j, i, f"{cm[i, j]:,}\n({percentage})",
                 ha="center", va="center", color=text_color, fontsize=10,
             )
 
@@ -142,14 +171,17 @@ def plot_confusion_matrix(metrics: dict, split: str = "test", ax=None, save_path
 
 
 def plot_roc_curve(metrics: dict, split: str = "test", ax=None, save_path=None):
-    fpr, tpr = metrics["_roc_curve"]
     own_fig = ax is None
     if own_fig:
         fig, ax = plt.subplots(figsize=(5, 4.5))
     else:
         fig = ax.figure
 
-    ax.plot(fpr, tpr, color=COLOR_BLUE, linewidth=2, label=f"ROC (AUC={metrics['roc_auc']:.3f})")
+    if metrics['_roc_curve'] is not None:
+        fpr, tpr = metrics['_roc_curve']
+        ax.plot(fpr, tpr, color=COLOR_BLUE, linewidth=2, label=f"ROC (AUC={metrics['roc_auc']:.3f})")
+    else:
+        ax.text(.5, .6, 'ROC undefined: only one true class', ha='center', transform=ax.transAxes)
     ax.plot([0, 1], [0, 1], color=COLOR_MUTED, linewidth=1, linestyle="--", label="chance")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1.02)
@@ -167,20 +199,23 @@ def plot_roc_curve(metrics: dict, split: str = "test", ax=None, save_path=None):
 
 
 def plot_pr_curve(metrics: dict, split: str = "test", ax=None, save_path=None):
-    recall, precision = metrics["_pr_curve"]
     own_fig = ax is None
     if own_fig:
         fig, ax = plt.subplots(figsize=(5, 4.5))
     else:
         fig = ax.figure
 
-    ax.plot(recall, precision, color=COLOR_GREEN, linewidth=2, label=f"PR (AUC={metrics['pr_auc']:.3f})")
+    if metrics['_pr_curve'] is not None:
+        recall, precision = metrics['_pr_curve']
+        ax.plot(recall, precision, color=COLOR_GREEN, linewidth=2, label=f"PR (AP={metrics['pr_auc']:.3f})")
+        ax.legend(frameon=False, loc="lower left")
+    else:
+        ax.text(.5, .5, 'PR undefined: no positive labels', ha='center', transform=ax.transAxes)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1.02)
     ax.set_xlabel("Recall")
     ax.set_ylabel("Precision")
     ax.set_title(f"Precision-Recall curve ({split} split)")
-    ax.legend(frameon=False, loc="lower left")
     _style_axes(ax)
 
     if own_fig:

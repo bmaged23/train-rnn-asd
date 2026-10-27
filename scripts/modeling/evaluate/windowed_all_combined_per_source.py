@@ -1,15 +1,8 @@
 """Breaks scripts/modeling/evaluate/windowed_all_combined.py's combined test-split
 metrics down PER SOURCE DATASET — same checkpoint, same combined test loader,
-single forward pass, but each window's person_id is looked up against every
-source's own person_id set (cheap metadata-only LandmarkSequenceDataset
-loads, no windowing) to bucket predictions by source before computing
-per-source confusion matrices — rather than the combined-only report
-scripts/modeling/evaluate/windowed_all_combined.py writes.
-
-This works because every source's person_id is globally unique (by
-construction — see [[project-asd-avspeech-integration]]'s person_id/entity_id
-collision bug and fix for why that invariant matters), so a person_id ->
-source_label mapping built once up front is unambiguous.
+single forward pass, using each batch's native source_label metadata. This
+avoids a redundant full landmark-data load and does not assume track IDs are
+globally unique across independent datasets.
 
 Writes to its own config.ALL_WINDOWED_PER_SOURCE_EVALUATION_DIR folder —
 reset (deleted and recreated) at the start of every run, same convention as
@@ -48,9 +41,7 @@ from config import (
     EVAL_LOG_FILENAME,
 )
 
-sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent / "src"))
-from dataset import LandmarkSequenceDataset
-from windowed_dataset import (
+from src.windowed_dataset import (
     ava_source,
     avspeech_source,
     columbia_source,
@@ -58,9 +49,9 @@ from windowed_dataset import (
     speakingfaces_source,
     wasd_source,
 )
-from windowed_model import WindowedSpeakingDetectorRNN
-from metrics import compute_metrics, format_report
-from train_utils import reset_dir
+from src.windowed_model import WindowedSpeakingDetectorRNN
+from src.metrics import compute_metrics, format_report
+from src.train_utils import reset_dir
 
 logger = logging.getLogger("evaluate_windowed_all_combined_per_source")
 
@@ -86,26 +77,9 @@ def setup_logging(log_path: Path) -> None:
     logger.addHandler(stream_handler)
 
 
-def build_person_id_to_source_map() -> dict[str, str]:
-    """Metadata-only pass (no windowing) per source, just to know which
-    person_ids belong to which dataset. "unitalk" is the primary source
-    (csv_path=None -> config.DATA_PROCESSED_DIR's own test_split.csv).
-    """
-    mapping: dict[str, str] = {}
-    primary = LandmarkSequenceDataset(SPLIT, source_label="unitalk")
-    for pid in primary.person_ids:
-        mapping[pid] = "unitalk"
-    for source_fn in _EXTRA_SOURCES:
-        csv_path, label = source_fn(SPLIT)
-        ds = LandmarkSequenceDataset(SPLIT, csv_path=csv_path, source_label=label)
-        for pid in ds.person_ids:
-            mapping[pid] = label
-    return mapping
-
-
 @torch.no_grad()
 def collect_predictions_with_source(
-    model: WindowedSpeakingDetectorRNN, loader, device: torch.device, person_id_to_source: dict[str, str]
+    model: WindowedSpeakingDetectorRNN, loader, device: torch.device
 ) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """Runs `model` over every batch, bucketing (y_true, y_prob) by source —
     returns {source_label: (y_true, y_pred, y_prob)}, plus "combined" for
@@ -119,19 +93,22 @@ def collect_predictions_with_source(
         features = batch["features"].to(device)
         lengths = batch["lengths"]
         labels = batch["labels"].to(device)
-        person_ids = batch["person_id"]
+        sources = batch["source_label"]
 
         logits = model(features, lengths)
         probs = torch.sigmoid(logits).cpu().numpy()
         labels_np = labels.cpu().numpy()
 
-        for pid, label, prob in zip(person_ids, labels_np, probs):
-            source = person_id_to_source.get(pid, "UNKNOWN")
+        for source, label, prob in zip(sources, labels_np, probs, strict=True):
+            if source not in _SOURCE_ORDER[:-1]:
+                raise ValueError(f'Unrecognized source label: {source!r}')
             labels_by_source.setdefault(source, []).append(label)
             probs_by_source.setdefault(source, []).append(prob)
             labels_by_source.setdefault("combined", []).append(label)
             probs_by_source.setdefault("combined", []).append(prob)
 
+    if not labels_by_source:
+        raise ValueError('No windows were processed; cannot report an evaluation')
     result = {}
     for source in labels_by_source:
         y_true = np.array(labels_by_source[source], dtype=np.int64)
@@ -150,8 +127,6 @@ def main(checkpoint: str = "best") -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"device: {device}")
-    logger.info("building person_id -> source map (metadata-only, no windowing)...")
-    person_id_to_source = build_person_id_to_source_map()
 
     checkpoint_path = CHECKPOINTS_DIR / _CHECKPOINT_CHOICES[checkpoint]
     if not checkpoint_path.exists():
@@ -166,7 +141,7 @@ def main(checkpoint: str = "best") -> None:
         shuffle=False,
         extra_sources=[fn(SPLIT) for fn in _EXTRA_SOURCES],
     )
-    by_source = collect_predictions_with_source(model, loader, device, person_id_to_source)
+    by_source = collect_predictions_with_source(model, loader, device)
 
     for source in _SOURCE_ORDER:
         if source not in by_source:

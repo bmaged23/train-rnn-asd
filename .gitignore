@@ -20,3 +20,17 @@ checkpoints/
 logs/
 evaluation*/
 *.log
+
+# Local package cache, implementation notes and generated validation reports
+/.cache/
+/description/
+/output/
+/input/
+
+# Generated ad-hoc landmarks and model weights outside their usual folders
+/landmarks/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx

@@ -82,6 +82,15 @@ The train/validation/test split is made at the track level. Training chooses che
 - FFmpeg for video-based dataset scripts
 - A CUDA-capable NVIDIA GPU and compatible driver are recommended for training. CPU execution is possible for development but will be much slower. The requirements install a CUDA-enabled PyTorch build and can download several gigabytes of packages.
 
+### Validated quality-check environment
+
+The current optimization stage provides a pinned CPU RNN/data/evaluation
+environment in `requirements/ci.txt` and 22 offline regression tests. This does
+not reproduce the historical trained-model scores. The root requirements are the
+older combined research stack; full GPU/image/VLM environments and serving
+remain to be qualified against the original checkpoints and data.
+[Setup, test commands, cache changes and scope](docs/quality/README.md).
+
 ### Clone and install
 
     git clone https://github.com/bmaged23/train-rnn-asd.git
@@ -226,17 +235,22 @@ The VLM's current one-epoch default is paired with a configured sample of 10,000
 
     .
     ├── config.py                 # shared paths, feature settings, and experiment configuration
-    ├── requirements.txt          # Python dependencies
+    ├── requirements.txt          # original full research stack, not yet requalified
+    ├── requirements/             # exact evaluation, CPU RNN and CI profiles
+    ├── tests/                    # RNN/data/cache/metric/provenance regression tests
     ├── src/                      # datasets, models, metrics, and training utilities
     ├── scripts/
     │   ├── dataset/              # download source datasets and model assets
     │   ├── features/             # extract landmarks and build model caches
     │   ├── splits/               # create held-out validation/test CSVs
+    │   ├── validation/           # audit exact track/recording split isolation
     │   └── modeling/
     │       ├── train/            # one training entry point per experiment
     │       └── evaluate/         # held-out and per-source evaluations
     ├── notebooks/                # exploratory, sanity-check, and model analysis
-    └── docs/assets/               # figures used in this README
+    └── docs/
+        ├── assets/               # historical figures used in this README
+        └── quality/              # current validation contracts and remaining work
 
 ## Research notebooks
 
@@ -248,6 +262,10 @@ The VLM's current one-epoch default is paired with a configured sample of 10,000
 - notebooks/07_combined_model_test_evaluation.ipynb — inspect a combined-model test report and prediction examples.
 
 ## Reproducibility and limitations
+
+[Current reliability checks, split audit and laptop worker limits](docs/quality/README.md).
+These offline software checks do not reproduce the historical trained-model scores.
+
 
 - The training scripts seed their experiments and use deterministic PyTorch settings where supported. GPU kernels and driver versions can still affect repeatability.
 - Test data is reserved for final evaluation; do not use it for checkpoint selection or model tuning.
