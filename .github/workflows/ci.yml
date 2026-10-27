@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 15
     env:
       MPLBACKEND: Agg
-      MPLCONFIGDIR: ${{ runner.temp }}/asd-matplotlib
+      MPLCONFIGDIR: /tmp/asd-matplotlib
       OMP_NUM_THREADS: '2'
       OPENBLAS_NUM_THREADS: '2'
     steps:
