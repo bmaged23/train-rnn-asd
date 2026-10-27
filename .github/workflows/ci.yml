@@ -34,3 +34,7 @@ jobs:
         run: ruff check config.py src scripts tests
       - name: Test RNN/data/cache contracts, metrics, splits and worker limits
         run: python -m unittest discover -s tests -v
+      - name: Build checkpoint-required inference toolkit
+        run: docker build -f deployment/docker/Dockerfile -t asd-window-toolkit:ci .
+      - name: Verify packaged CLI predictions and missing-weight failure
+        run: python -m scripts.validation.validate_inference_container --image asd-window-toolkit:ci

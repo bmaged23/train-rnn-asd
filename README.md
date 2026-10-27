@@ -8,6 +8,16 @@ The project explores three complementary ways to recognize speaking from face vi
 
 ## The three approaches
 
+### Checkpoint-required inference toolkit
+
+A new CLI loads a saved windowed BiLSTM and predicts from prepared landmark
+windows, with checkpoint hashing, explicit feature order and input validation.
+See the [inference and Docker guide](docs/inference/README.md) for installation,
+manifest schema and container commands. No training, dataset download or pretrained
+checkpoint is included. Its synthetic contract tests do not reproduce the
+historical results below. The CPU toolkit is distinct from a GPU-qualified model
+release; no Docker Hub image has been published for it yet.
+
 | Approach | Input and model | Resource profile | Current evidence |
 |---|---|---|---|
 | **Landmark BiLSTM** | MediaPipe mouth landmarks and mouth-aspect features; BiLSTM predicts a label per frame or per two-second window. | Lowest data and compute cost of the three. Recommended baseline. | The six-source windowed run records **92.90% accuracy and 93.22% F1** on 22,030 held-out windows. |
@@ -85,7 +95,7 @@ The train/validation/test split is made at the track level. Training chooses che
 ### Validated quality-check environment
 
 The current optimization stage provides a pinned CPU RNN/data/evaluation
-environment in `requirements/ci.txt` and 22 offline regression tests. This does
+environment in `requirements/ci.txt` and 26 offline regression tests. This does
 not reproduce the historical trained-model scores. The root requirements are the
 older combined research stack; full GPU/image/VLM environments and serving
 remain to be qualified against the original checkpoints and data.
@@ -238,11 +248,13 @@ The VLM's current one-epoch default is paired with a configured sample of 10,000
     ├── requirements.txt          # original full research stack, not yet requalified
     ├── requirements/             # exact evaluation, CPU RNN and CI profiles
     ├── tests/                    # RNN/data/cache/metric/provenance regression tests
+    ├── deployment/docker/        # checkpoint-required CPU inference toolkit
     ├── src/                      # datasets, models, metrics, and training utilities
     ├── scripts/
     │   ├── dataset/              # download source datasets and model assets
     │   ├── features/             # extract landmarks and build model caches
     │   ├── splits/               # create held-out validation/test CSVs
+    │   ├── inference/            # validated prepared-window prediction CLI
     │   ├── validation/           # audit exact track/recording split isolation
     │   └── modeling/
     │       ├── train/            # one training entry point per experiment
@@ -250,7 +262,8 @@ The VLM's current one-epoch default is paired with a configured sample of 10,000
     ├── notebooks/                # exploratory, sanity-check, and model analysis
     └── docs/
         ├── assets/               # historical figures used in this README
-        └── quality/              # current validation contracts and remaining work
+        ├── quality/              # current validation contracts and remaining work
+        └── inference/            # checkpoint manifest, CLI and Docker instructions
 
 ## Research notebooks
 

@@ -1,0 +1,9 @@
+**
+!config.py
+!requirements/
+!requirements/*.txt
+!src/
+!src/*.py
+!scripts/
+!scripts/inference/
+!scripts/inference/*.py

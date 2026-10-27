@@ -104,6 +104,13 @@ and it does not make VLM/image batches fit smaller GPU memory.
 
 ## Remaining release work
 
+The owner has explicitly excluded new training and large dataset/model downloads
+because of storage and GPU constraints. Continue software/container reliability
+work within that scope. The [prepared-window inference toolkit](../inference/README.md)
+is tested with synthetic weights and requires supplied trained artifacts for
+meaningful predictions. Neither its tests nor its container build qualify a
+trained detector.
+
 Locate trained checkpoints, matching feature/config metadata and processed
 train/validation/test data; verify split isolation and real held-out results.
 Then benchmark actual models/flows on CPU/GPU, establish qualified serving and
