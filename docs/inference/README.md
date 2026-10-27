@@ -59,17 +59,20 @@ in a CUDA-enabled PyTorch installation; this route has not been GPU-qualified.
 ## Container toolkit
 
 The Docker recipe is a **CPU inference toolkit requiring your own weights and
-prepared inputs**, not a ready-to-use trained detector or a published Docker Hub
-release. It excludes datasets, models, caches, notebooks and credentials.
+prepared inputs**, not a ready-to-use trained detector. The default image command
+starts the API; override it below for CLI use. See the
+[public image and delivery guide](../deployment/README.md). The image excludes
+datasets, models, caches, notebooks and credentials.
 
 ```bash
 docker build -f deployment/docker/Dockerfile -t asd-window-toolkit:local .
-docker run --rm asd-window-toolkit:local --help
+docker run --rm asd-window-toolkit:local -m scripts.inference.predict_windows --help
 mkdir -p output
 chmod a+w output
 docker run --rm \
   -v "$PWD/models:/models:ro" -v "$PWD/input:/input:ro" \
   -v "$PWD/output:/output" asd-window-toolkit:local \
+  -m scripts.inference.predict_windows \
   --checkpoint /models/model.pt --manifest /models/manifest.json \
   --input /input/windows.json --output /output/predictions.json
 ```
@@ -93,5 +96,6 @@ that probabilities match native PyTorch and missing weights fail explicitly:
 python -m scripts.validation.validate_inference_container --image asd-window-toolkit:local
 ```
 
-This pipeline performs software CI and container verification. It does not train,
-evaluate accuracy, publish an image or deploy a running service.
+The pipeline performs software CI, container verification and gated public toolkit
+delivery. It does not train, evaluate accuracy or deploy a running service.
+See the [API guide](../api/README.md) for HTTP inference.

@@ -36,7 +36,7 @@ def main():
             feature_names=["x", "y"], features=features.tolist(), lengths=lengths.tolist())))
         command = ["docker", "run", "--rm", "--network", "none",
                    "--read-only", "--tmpfs", "/tmp", "-v", f"{root}:/fixtures:ro",
-                   "-v", f"{output}:/output", args.image,
+                   "-v", f"{output}:/output", args.image, "-m", "scripts.inference.predict_windows",
                    "--checkpoint", "/fixtures/model.pt", "--manifest", "/fixtures/manifest.json",
                    "--input", "/fixtures/input.json", "--output", "/output/predictions.json"]
         subprocess.run(command, check=True, timeout=90)

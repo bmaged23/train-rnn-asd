@@ -8,15 +8,64 @@ The project explores three complementary ways to recognize speaking from face vi
 
 ## The three approaches
 
-### Checkpoint-required inference toolkit
+### Checkpoint-required API and Docker service
 
-A new CLI loads a saved windowed BiLSTM and predicts from prepared landmark
-windows, with checkpoint hashing, explicit feature order and input validation.
-See the [inference and Docker guide](docs/inference/README.md) for installation,
-manifest schema and container commands. No training, dataset download or pretrained
-checkpoint is included. Its synthetic contract tests do not reproduce the
-historical results below. The CPU toolkit is distinct from a GPU-qualified model
-release; no Docker Hub image has been published for it yet.
+The API and CLI load a supplied windowed BiLSTM checkpoint and predict from
+prepared landmark windows, with checkpoint hashing, explicit feature order and
+input validation. No training, dataset download or pretrained checkpoint is
+included. Current software verification: **34 offline tests passed**, plus actual
+container CLI/HTTP prediction checks using temporary synthetic weights. These
+checks do not reproduce the historical accuracy results below.
+
+## API
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /v1/predict` | Speaking probabilities and labels for prepared windows |
+| `GET /v1/model` | Checkpoint hash, architecture and ordered feature schema |
+| `GET /health/live`, `GET /health/ready` | Separate process liveness and model readiness |
+| `GET /metrics` | Process-local prediction counters and duration |
+| `GET /docs`, `GET /openapi.json` | Interactive documentation and API specification |
+
+One model is loaded at startup. Missing/invalid checkpoints return 503 readiness;
+there is no fallback model. Optional bearer authentication, request byte limits
+and bounded inference concurrency are implemented. Inputs are completed feature
+windows, not raw video or streaming audio. [API setup, requests and configuration](docs/api/README.md).
+
+## Docker — pull and run
+
+[Public Docker Hub repository](https://hub.docker.com/r/bmaged23/train-rnn-asd).
+The CPU image includes the application and pinned libraries. Supply your trusted
+checkpoint and [matching manifest](docs/inference/README.md) under `models/`, and
+create a private `.env` containing your optional `ASD_API_TOKEN`.
+
+```bash
+docker pull bmaged23/train-rnn-asd:cpu
+docker run --rm --read-only --tmpfs /tmp --env-file .env \
+  -p 127.0.0.1:8000:8000 -v "$PWD/models:/models:ro" \
+  -e ASD_CHECKPOINT=/models/model.pt -e ASD_MANIFEST=/models/manifest.json \
+  bmaged23/train-rnn-asd:cpu
+```
+
+Open http://127.0.0.1:8000/docs. This route needs no Git clone or pip installation.
+Linux x86-64 CPU is the target; no CUDA dependencies or GPU requirement. Without
+the supplied checkpoint, the image starts the web process but remains unready.
+[Docker guide: model provisioning, health checks, CLI, local builds](docs/deployment/README.md).
+
+## CI/CD
+
+Pinned installation → dependency/lint/compile checks → 34 tests → candidate image
+build → actual CLI/HTTP container checks → immutable image push → anonymous pull
+and repeat checks → promote `cpu` tag → synchronize Docker Hub overview.
+
+Pull requests run software/container CI. Trusted `master` pushes and manual runs
+publish after passing gates; documentation-only pushes skip rebuilding. CD delivers
+an image, rather than replacing a running service. This gate verifies software
+with synthetic checkpoints; it does not evaluate ASD accuracy or train a model.
+[Full CI/CD guide](docs/deployment/README.md#cicd-flow) · [workflow](.github/workflows/ci.yml)
+· [release evidence](docs/deployment/RELEASE.md).
+
+## Historical research models
 
 | Approach | Input and model | Resource profile | Current evidence |
 |---|---|---|---|
@@ -87,18 +136,18 @@ The train/validation/test split is made at the track level. Training chooses che
 ### Requirements
 
 - Linux or WSL2 Ubuntu
-- Python 3.13
+- Python 3.13.16
 - Git
 - FFmpeg for video-based dataset scripts
-- A CUDA-capable NVIDIA GPU and compatible driver are recommended for training. CPU execution is possible for development but will be much slower. The requirements install a CUDA-enabled PyTorch build and can download several gigabytes of packages.
+- The current API/toolkit uses a pinned CPU runtime. GPU training and the image/VLM research stacks need separate dependencies and substantial resources; they were not requalified in this optimization work.
 
 ### Validated quality-check environment
 
 The current optimization stage provides a pinned CPU RNN/data/evaluation
-environment in `requirements/ci.txt` and 26 offline regression tests. This does
-not reproduce the historical trained-model scores. The root requirements are the
-older combined research stack; full GPU/image/VLM environments and serving
-remain to be qualified against the original checkpoints and data.
+environment in `requirements/ci.txt` and 34 offline regression tests. This does
+not reproduce the historical trained-model scores. Root `requirements.txt` selects
+the pinned CPU API runtime; the original heavy combined research stack is preserved
+separately as `requirements/research-unqualified.txt`.
 [Setup, test commands, cache changes and scope](docs/quality/README.md).
 
 ### Clone and install
@@ -110,6 +159,11 @@ remain to be qualified against the original checkpoints and data.
     source .venv/bin/activate
     python -m pip install --upgrade pip
     python -m pip install -r requirements.txt
+    python -m pip check
+
+For the API, copy `.env.example` to `.env`, configure `ASD_CHECKPOINT` and
+`ASD_MANIFEST`, then run `python -m scripts.application.start_api`.
+[Complete source setup and request example](docs/api/README.md).
 
 On Ubuntu/WSL, install FFmpeg before running video download or processing scripts:
 
@@ -129,6 +183,12 @@ Open .env and optionally set:
 The repository ignores local data, model weights, checkpoints, logs, caches, and .env files. They are not committed with the source.
 
 ## Download and prepare the datasets
+
+The following are **optional historical research instructions**, not API setup.
+They require additional research dependencies from
+`requirements/research-unqualified.txt`; this unpinned stack has not been newly
+validated and includes large GPU/VLM packages. The owner excluded new training and
+large downloads from this optimization. None of these commands runs automatically.
 
 Start with UniTalk-ASD to reproduce the lightweight landmark baseline. These commands download the dataset, fetch the MediaPipe model, extract per-frame features, and create the validation/test split:
 
@@ -245,16 +305,19 @@ The VLM's current one-epoch default is paired with a configured sample of 10,000
 
     .
     ├── config.py                 # shared paths, feature settings, and experiment configuration
-    ├── requirements.txt          # original full research stack, not yet requalified
-    ├── requirements/             # exact evaluation, CPU RNN and CI profiles
+    ├── requirements.txt          # pinned CPU API runtime entry point
+    ├── requirements/             # exact runtime/CI profiles; original research list
     ├── tests/                    # RNN/data/cache/metric/provenance regression tests
     ├── deployment/docker/        # checkpoint-required CPU inference toolkit
     ├── src/                      # datasets, models, metrics, and training utilities
+    │   └── serving/              # API application, request schema and settings
     ├── scripts/
     │   ├── dataset/              # download source datasets and model assets
     │   ├── features/             # extract landmarks and build model caches
     │   ├── splits/               # create held-out validation/test CSVs
     │   ├── inference/            # validated prepared-window prediction CLI
+    │   ├── application/          # start one API/model process
+    │   ├── release/              # gated publication and Docker Hub overview
     │   ├── validation/           # audit exact track/recording split isolation
     │   └── modeling/
     │       ├── train/            # one training entry point per experiment
@@ -263,7 +326,12 @@ The VLM's current one-epoch default is paired with a configured sample of 10,000
     └── docs/
         ├── assets/               # historical figures used in this README
         ├── quality/              # current validation contracts and remaining work
-        └── inference/            # checkpoint manifest, CLI and Docker instructions
+        ├── inference/            # checkpoint manifest and prepared-feature contract
+        ├── api/                  # HTTP endpoints and source setup
+        ├── deployment/           # Docker, CI/CD and release evidence
+        └── project/              # folder responsibilities and maintenance policy
+
+[Detailed repository organization and ignore policy](docs/project/README.md).
 
 ## Research notebooks
 

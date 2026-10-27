@@ -1,9 +1,14 @@
 **
 !config.py
+!LICENSE
 !requirements/
 !requirements/*.txt
 !src/
 !src/*.py
+!src/serving/
+!src/serving/*.py
 !scripts/
 !scripts/inference/
 !scripts/inference/*.py
+!scripts/application/
+!scripts/application/*.py

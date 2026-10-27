@@ -1,7 +1,8 @@
-# Reliability work — in progress
+# Software reliability and model-evaluation scope
 
-This first stage adds executable evaluation contracts and split checks. It does
-not reproduce the historical model scores or qualify a trained model/container.
+This work adds executable evaluation contracts, split checks, API behavior tests
+and real CLI/HTTP container verification. It does
+not reproduce the historical model scores or qualify a trained detector.
 No trained checkpoint or processed landmark dataset is included in this checkout;
 real model qualification must wait for those artifacts.
 
@@ -19,10 +20,12 @@ ruff check config.py src scripts tests
 ```
 
 `requirements/evaluation.txt` is the exact data/metrics environment. `requirements/cpu.txt` adds CPU-only Torch and its exact dependencies; the CI
-include adds pinned Ruff and YAML-validation tools. MediaPipe and image/VLM training stacks
-remain separate. These are not full GPU/application locks.
-The old root requirements remain provisional until model-family environments
-are tested separately. Hosted CI now runs these checks rather than only syntax.
+include adds pinned API/test/lint dependencies. `requirements/api.txt` and root
+`requirements.txt` select the supported CPU serving runtime. MediaPipe and image/VLM
+training stacks remain separate; the former root list is preserved as
+`requirements/research-unqualified.txt`. No full GPU/training lock is claimed.
+Hosted CI also builds/tests the serving container; trusted pushes deliver the
+toolkit after an anonymous-pull verification. See the [delivery guide](../deployment/README.md).
 
 ## Metric contracts
 

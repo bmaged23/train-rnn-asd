@@ -2,6 +2,7 @@ name: CI
 on:
   push:
     branches: [master]
+    paths-ignore: ['docs/**', '*.md']
   pull_request:
     branches: [master]
   workflow_dispatch:
@@ -13,7 +14,7 @@ concurrency:
 jobs:
   offline-quality:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       MPLBACKEND: Agg
       MPLCONFIGDIR: /tmp/asd-matplotlib
@@ -35,6 +36,18 @@ jobs:
       - name: Test RNN/data/cache contracts, metrics, splits and worker limits
         run: python -m unittest discover -s tests -v
       - name: Build checkpoint-required inference toolkit
-        run: docker build -f deployment/docker/Dockerfile -t asd-window-toolkit:ci .
+        run: docker build --label org.opencontainers.image.revision="$GITHUB_SHA" --label org.opencontainers.image.source=https://github.com/bmaged23/train-rnn-asd -f deployment/docker/Dockerfile -t asd-window-toolkit:ci .
       - name: Verify packaged CLI predictions and missing-weight failure
         run: python -m scripts.validation.validate_inference_container --image asd-window-toolkit:ci
+      - name: Verify actual HTTP predictions and missing-checkpoint readiness
+        run: python -m scripts.validation.validate_api_container --image asd-window-toolkit:ci
+      - name: Publish tested toolkit and verify its public immutable image
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: python -m scripts.release.publish_toolkit --image asd-window-toolkit:ci
+      - name: Update and verify public Docker Hub overview
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: python -m scripts.release.sync_dockerhub_overview

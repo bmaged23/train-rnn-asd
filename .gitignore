@@ -18,7 +18,7 @@ data/
 models/
 checkpoints/
 logs/
-evaluation*/
+/evaluation*/
 *.log
 
 # Local package cache, implementation notes and generated validation reports
