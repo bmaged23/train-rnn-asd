@@ -6,9 +6,7 @@ This project studies **active speaker detection from visual information**: given
 
 The project explores three complementary ways to recognize speaking from face video: compact MediaPipe landmarks with an LSTM, raw face images with a CNN+LSTM, and a pretrained vision-language model (VLM) adapted to answer the task. In the experiments reported by the project author, the landmark BiLSTM gave the best practical balance of accuracy and compute, the image model was less accurate, and the VLM was promising but required more GPU memory and training time. The results below distinguish metrics recorded in the repository from preliminary run results reported by the author.
 
-## The three approaches
-
-### Checkpoint-required API and Docker service
+## Checkpoint-required API and Docker service
 
 The API and CLI load a supplied windowed BiLSTM checkpoint and predict from
 prepared landmark windows, with checkpoint hashing, explicit feature order and
@@ -64,6 +62,10 @@ an image, rather than replacing a running service. This gate verifies software
 with synthetic checkpoints; it does not evaluate ASD accuracy or train a model.
 [Full CI/CD guide](docs/deployment/README.md#cicd-flow) · [workflow](.github/workflows/ci.yml)
 · [release evidence](docs/deployment/RELEASE.md).
+
+Verified release: [CI/CD run 40434951510](https://github.com/bmaged23/train-rnn-asd/actions/runs/40434951510)
+passed all stages. Public Linux amd64 image:
+`bmaged23/train-rnn-asd@sha256:ec2d7420bae85afba4dc7a5ade80842f2abf6955fa11529ac1f8b1956938c753`.
 
 ## Historical research models
 

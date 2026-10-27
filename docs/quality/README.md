@@ -116,7 +116,8 @@ trained detector.
 
 Locate trained checkpoints, matching feature/config metadata and processed
 train/validation/test data; verify split isolation and real held-out results.
-Then benchmark actual models/flows on CPU/GPU, establish qualified serving and
-Docker assets/terms, test a real demo/API, and gate public image delivery on
-real model results. No random-weight or synthetic-only accuracy may substitute
-for those stages. Keep large six-source downloads and VLM installation opt-in.
+Then benchmark trained models/flows on CPU/GPU and qualify a trained-detector
+demo/release against real held-out results. The checkpoint-required toolkit/API
+has separate verified software/container delivery; it does not qualify the
+supplied model. No random-weight or synthetic-only accuracy may substitute for
+model evaluation. Keep large six-source downloads and VLM installation opt-in.

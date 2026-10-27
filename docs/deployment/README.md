@@ -77,7 +77,7 @@ flowchart LR
     C --> D[Build candidate CPU image]
     D --> E[CLI and HTTP container contracts]
     E --> F{Trusted master push or manual run?}
-    F -->|Yes| G[Push immutable source tag]
+    F -->|Yes| G[Push source-specific tag]
     G --> H[Anonymous pull and repeat container checks]
     H --> I[Promote cpu tag and verify digest]
     I --> J[Sync Docker Hub overview]
