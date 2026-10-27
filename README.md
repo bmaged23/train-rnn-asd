@@ -6,68 +6,9 @@ This project studies **active speaker detection from visual information**: given
 
 The project explores three complementary ways to recognize speaking from face video: compact MediaPipe landmarks with an LSTM, raw face images with a CNN+LSTM, and a pretrained vision-language model (VLM) adapted to answer the task. In the experiments reported by the project author, the landmark BiLSTM gave the best practical balance of accuracy and compute, the image model was less accurate, and the VLM was promising but required more GPU memory and training time. The results below distinguish metrics recorded in the repository from preliminary run results reported by the author.
 
-## Checkpoint-required API and Docker service
+[Models and visualizations](#models-and-visualizations) · [Results](#results-and-comparison) · [Pipeline](#pipeline-overview) · [Setup](#setup) · [API](#api) · [Docker](#docker--pull-and-run) · [CI/CD](#cicd)
 
-The API and CLI load a supplied windowed BiLSTM checkpoint and predict from
-prepared landmark windows, with checkpoint hashing, explicit feature order and
-input validation. No training, dataset download or pretrained checkpoint is
-included. Current software verification: **34 offline tests passed**, plus actual
-container CLI/HTTP prediction checks using temporary synthetic weights. These
-checks do not reproduce the historical accuracy results below.
-
-## API
-
-| Endpoint | Purpose |
-|---|---|
-| `POST /v1/predict` | Speaking probabilities and labels for prepared windows |
-| `GET /v1/model` | Checkpoint hash, architecture and ordered feature schema |
-| `GET /health/live`, `GET /health/ready` | Separate process liveness and model readiness |
-| `GET /metrics` | Process-local prediction counters and duration |
-| `GET /docs`, `GET /openapi.json` | Interactive documentation and API specification |
-
-One model is loaded at startup. Missing/invalid checkpoints return 503 readiness;
-there is no fallback model. Optional bearer authentication, request byte limits
-and bounded inference concurrency are implemented. Inputs are completed feature
-windows, not raw video or streaming audio. [API setup, requests and configuration](docs/api/README.md).
-
-## Docker — pull and run
-
-[Public Docker Hub repository](https://hub.docker.com/r/bmaged23/train-rnn-asd).
-The CPU image includes the application and pinned libraries. Supply your trusted
-checkpoint and [matching manifest](docs/inference/README.md) under `models/`, and
-create a private `.env` containing your optional `ASD_API_TOKEN`.
-
-```bash
-docker pull bmaged23/train-rnn-asd:cpu
-docker run --rm --read-only --tmpfs /tmp --env-file .env \
-  -p 127.0.0.1:8000:8000 -v "$PWD/models:/models:ro" \
-  -e ASD_CHECKPOINT=/models/model.pt -e ASD_MANIFEST=/models/manifest.json \
-  bmaged23/train-rnn-asd:cpu
-```
-
-Open http://127.0.0.1:8000/docs. This route needs no Git clone or pip installation.
-Linux x86-64 CPU is the target; no CUDA dependencies or GPU requirement. Without
-the supplied checkpoint, the image starts the web process but remains unready.
-[Docker guide: model provisioning, health checks, CLI, local builds](docs/deployment/README.md).
-
-## CI/CD
-
-Pinned installation → dependency/lint/compile checks → 34 tests → candidate image
-build → actual CLI/HTTP container checks → immutable image push → anonymous pull
-and repeat checks → promote `cpu` tag → synchronize Docker Hub overview.
-
-Pull requests run software/container CI. Trusted `master` pushes and manual runs
-publish after passing gates; documentation-only pushes skip rebuilding. CD delivers
-an image, rather than replacing a running service. This gate verifies software
-with synthetic checkpoints; it does not evaluate ASD accuracy or train a model.
-[Full CI/CD guide](docs/deployment/README.md#cicd-flow) · [workflow](.github/workflows/ci.yml)
-· [release evidence](docs/deployment/RELEASE.md).
-
-Verified release: [CI/CD run 40434951510](https://github.com/bmaged23/train-rnn-asd/actions/runs/40434951510)
-passed all stages. Public Linux amd64 image:
-`bmaged23/train-rnn-asd@sha256:ec2d7420bae85afba4dc7a5ade80842f2abf6955fa11529ac1f8b1956938c753`.
-
-## Historical research models
+## Models and visualizations
 
 | Approach | Input and model | Resource profile | Current evidence |
 |---|---|---|---|
@@ -75,7 +16,7 @@ passed all stages. Public Linux amd64 image:
 | **Image CNN+LSTM** | Face-crop images encoded by MobileNetV3-Small and a partially fine-tuned AdaFace backbone, then classified over a sequence by an LSTM. | High image-I/O and GPU cost. The six-source resized-frame cache was measured at about **81 GB**. | Preliminary author-reported accuracy: **88% train / 86% test**. Run artifacts are not included in this repository. |
 | **Vision-language model (VLM)** | A pretrained Qwen3.5-4B model receives the ordered face frames from a two-second window and is prompted to answer Yes/No. LoRA adapts the model to the task. | Highest GPU-memory, image-token, and wall-clock cost; requires downloading multi-gigabyte pretrained weights. | Preliminary author-reported accuracy: **90% train / 91% test** on a smaller run (about 25,000 training samples and 1,520 test samples). Run artifacts are not included here. |
 
-#### Why the VLM is a strong candidate
+### Why the VLM is a strong candidate
 
 The VLM is the project's most ambitious approach. Instead of reducing each frame to a small set of geometric measurements, it starts from a large pretrained visual model and sees the face crops themselves in temporal order. That gives it access to richer appearance and mouth-motion cues, and its pretrained visual representations may help it learn useful patterns from task data more effectively than a model trained from scratch. LoRA keeps fine-tuning focused on a small set of adapter weights while retaining the pretrained model's broader visual knowledge.
 
@@ -108,6 +49,40 @@ The project also has a **per-frame landmark BiLSTM** experiment. Unlike the gall
 ![Per-frame landmark BiLSTM test confusion matrix, ROC curve, and precision-recall curve](docs/assets/per-frame-test-evaluation.png)
 
 The image CNN+LSTM and VLM have evaluation scripts, but neither has a completed full-dataset training run with saved test predictions in this repository. Their TP/FN/TN/FP image galleries can be added after those models have produced real held-out outputs; the current visual predictions therefore show the landmark approach only.
+
+## Results and comparison
+
+The following results are recorded in the repository. Their prediction units and dataset mixtures differ, so compare them only with that context:
+
+| Experiment | Test set | Accuracy | F1 | ROC-AUC | PR-AUC |
+|---|---:|---:|---:|---:|---:|
+| Six-source windowed landmark BiLSTM | 22,030 windows | 92.90% | 93.22% | 98.29% | 98.53% |
+| UniTalk-ASD + AVA windowed BiLSTM, notebook run | 4,738 windows | 84.87% | 69.32% | 89.91% | 78.78% |
+| UniTalk-ASD per-frame BiLSTM, notebook run | 160,668 detected frames | 84.34% | 60.87% | 88.45% | 72.04% |
+
+The notebook runs above are included as analysis examples and are not an apples-to-apples comparison with the six-source result.
+
+The project author also reports the following preliminary train/test **accuracy** results from additional runs:
+
+| Approach | Train accuracy | Test accuracy | Run details |
+|---|---:|---:|---|
+| Landmark BiLSTM | 93% | 91.2% | Reported as a full-data run; exact sample count and split details were not retained. |
+| Image CNN+LSTM | 88% | 86% | Sample count and split details were not retained. |
+| Qwen3.5-4B VLM with LoRA | 90% | 91% | About 25,000 training samples and 1,520 test samples; the exact sampling unit and run configuration were not retained. |
+
+These are author-reported preliminary results. The corresponding checkpoints, metric logs, exact data counts, and run-specific hyperparameters are not included in this checkout, so the figures cannot be independently reproduced from the repository as published. Treat them as indicative rather than a controlled head-to-head benchmark. The six-source windowed landmark result above remains the strongest fully documented result in the repository.
+
+### Training hyperparameters
+
+The table below lists the **current checked-in configuration**, which may differ from the historical runs summarized above. Epochs are maximum budgets; early stopping can end training sooner. The exact epochs reached and learning rates used in those historical runs were not preserved with their metrics.
+
+| Approach | Learning rate in current config | Epoch budget in current config | Early stopping |
+|---|---:|---:|---|
+| Landmark BiLSTM (frame and windowed) | `1e-3` | Up to 200 | Patience 20 epochs |
+| Image CNN+LSTM | `1e-3` | Up to 200 | Patience 3 epochs |
+| Qwen3.5-4B VLM (LoRA) | `1e-4` | 1 epoch | Patience 2 (the one-epoch cap normally ends first) |
+
+The VLM's current one-epoch default is paired with a configured sample of 10,000 training windows per source. This differs from the author's recalled run of about 25,000 training samples; do not assume the checked-in defaults reproduce that historical score without the original settings and logs.
 
 ## Pipeline overview
 
@@ -269,39 +244,66 @@ The checked-in smoke-run configuration samples 10,000 training windows per sourc
 
 A large GPU is strongly recommended. The 4B-parameter model processes 50 face frames per window, so memory use and training time are much higher than for the landmark LSTM and typically higher than the image CNN+LSTM. Actual throughput depends on GPU memory, model placement, and the image-processing stack. The training script uses gradient accumulation and writes diagnostics to its log. A controlled comparison should use the same source mixture, held-out split, and evaluation metric for all three approaches.
 
-## Results and comparison
+## Checkpoint-required API and Docker service
 
-The following results are recorded in the repository. Their prediction units and dataset mixtures differ, so compare them only with that context:
+The API and CLI load a supplied windowed BiLSTM checkpoint and predict from
+prepared landmark windows, with checkpoint hashing, explicit feature order and
+input validation. No training, dataset download or pretrained checkpoint is
+included. Current software verification: **34 offline tests passed**, plus actual
+container CLI/HTTP prediction checks using temporary synthetic weights. These
+checks do not reproduce the historical accuracy results above.
 
-| Experiment | Test set | Accuracy | F1 | ROC-AUC | PR-AUC |
-|---|---:|---:|---:|---:|---:|
-| Six-source windowed landmark BiLSTM | 22,030 windows | 92.90% | 93.22% | 98.29% | 98.53% |
-| UniTalk-ASD + AVA windowed BiLSTM, notebook run | 4,738 windows | 84.87% | 69.32% | 89.91% | 78.78% |
-| UniTalk-ASD per-frame BiLSTM, notebook run | 160,668 detected frames | 84.34% | 60.87% | 88.45% | 72.04% |
+## API
 
-The notebook runs above are included as analysis examples and are not an apples-to-apples comparison with the six-source result.
+| Endpoint | Purpose |
+|---|---|
+| `POST /v1/predict` | Speaking probabilities and labels for prepared windows |
+| `GET /v1/model` | Checkpoint hash, architecture and ordered feature schema |
+| `GET /health/live`, `GET /health/ready` | Separate process liveness and model readiness |
+| `GET /metrics` | Process-local prediction counters and duration |
+| `GET /docs`, `GET /openapi.json` | Interactive documentation and API specification |
 
-The project author also reports the following preliminary train/test **accuracy** results from additional runs:
+One model is loaded at startup. Missing/invalid checkpoints return 503 readiness;
+there is no fallback model. Optional bearer authentication, request byte limits
+and bounded inference concurrency are implemented. Inputs are completed feature
+windows, not raw video or streaming audio. [API setup, requests and configuration](docs/api/README.md).
 
-| Approach | Train accuracy | Test accuracy | Run details |
-|---|---:|---:|---|
-| Landmark BiLSTM | 93% | 91.2% | Reported as a full-data run; exact sample count and split details were not retained. |
-| Image CNN+LSTM | 88% | 86% | Sample count and split details were not retained. |
-| Qwen3.5-4B VLM with LoRA | 90% | 91% | About 25,000 training samples and 1,520 test samples; the exact sampling unit and run configuration were not retained. |
+## Docker — pull and run
 
-These are author-reported preliminary results. The corresponding checkpoints, metric logs, exact data counts, and run-specific hyperparameters are not included in this checkout, so the figures cannot be independently reproduced from the repository as published. Treat them as indicative rather than a controlled head-to-head benchmark. The six-source windowed landmark result above remains the strongest fully documented result in the repository.
+[Public Docker Hub repository](https://hub.docker.com/r/bmaged23/train-rnn-asd).
+The CPU image includes the application and pinned libraries. Supply your trusted
+checkpoint and [matching manifest](docs/inference/README.md) under `models/`, and
+create a private `.env` containing your optional `ASD_API_TOKEN`.
 
-### Training hyperparameters
+```bash
+docker pull bmaged23/train-rnn-asd:cpu
+docker run --rm --read-only --tmpfs /tmp --env-file .env \
+  -p 127.0.0.1:8000:8000 -v "$PWD/models:/models:ro" \
+  -e ASD_CHECKPOINT=/models/model.pt -e ASD_MANIFEST=/models/manifest.json \
+  bmaged23/train-rnn-asd:cpu
+```
 
-The table below lists the **current checked-in configuration**, which may differ from the historical runs summarized above. Epochs are maximum budgets; early stopping can end training sooner. The exact epochs reached and learning rates used in those historical runs were not preserved with their metrics.
+Open http://127.0.0.1:8000/docs. This route needs no Git clone or pip installation.
+Linux x86-64 CPU is the target; no CUDA dependencies or GPU requirement. Without
+the supplied checkpoint, the image starts the web process but remains unready.
+[Docker guide: model provisioning, health checks, CLI, local builds](docs/deployment/README.md).
 
-| Approach | Learning rate in current config | Epoch budget in current config | Early stopping |
-|---|---:|---:|---|
-| Landmark BiLSTM (frame and windowed) | `1e-3` | Up to 200 | Patience 20 epochs |
-| Image CNN+LSTM | `1e-3` | Up to 200 | Patience 3 epochs |
-| Qwen3.5-4B VLM (LoRA) | `1e-4` | 1 epoch | Patience 2 (the one-epoch cap normally ends first) |
+## CI/CD
 
-The VLM's current one-epoch default is paired with a configured sample of 10,000 training windows per source. This differs from the author's recalled run of about 25,000 training samples; do not assume the checked-in defaults reproduce that historical score without the original settings and logs.
+Pinned installation → dependency/lint/compile checks → 34 tests → candidate image
+build → actual CLI/HTTP container checks → immutable image push → anonymous pull
+and repeat checks → promote `cpu` tag → synchronize Docker Hub overview.
+
+Pull requests run software/container CI. Trusted `master` pushes and manual runs
+publish after passing gates; documentation-only pushes skip rebuilding. CD delivers
+an image, rather than replacing a running service. This gate verifies software
+with synthetic checkpoints; it does not evaluate ASD accuracy or train a model.
+[Full CI/CD guide](docs/deployment/README.md#cicd-flow) · [workflow](.github/workflows/ci.yml)
+· [release evidence](docs/deployment/RELEASE.md).
+
+Verified release: [CI/CD run 40434951510](https://github.com/bmaged23/train-rnn-asd/actions/runs/40434951510)
+passed all stages. Public Linux amd64 image:
+`bmaged23/train-rnn-asd@sha256:ec2d7420bae85afba4dc7a5ade80842f2abf6955fa11529ac1f8b1956938c753`.
 
 ## Repository layout
 
